@@ -70,16 +70,43 @@ python3 "$SCRIPT_DIR/gen_htp_config.py" --tier "$TIER" --output "$HTP_CFG"
 
 HTP_BACKEND="$LIB/libQnnHtp.so"
 
+# Bir araci calistir; BASARISIZ olursa aracin --help ciktisini basip cikar.
+# Boylece tek bir calisma, 2.39'un gercek arayuzunu (dogru flag adlari) gosterir.
+# mode: py (QNN_PY ile) | native (dogrudan ELF)
+run_tool() {
+  local mode="$1"; shift
+  local tool="$1"; shift
+  local rc=0
+  if [ "$mode" = "py" ]; then
+    "$QNN_PY" "$BIN/$tool" "$@" || rc=$?
+  else
+    "$BIN/$tool" "$@" || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo ""
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "!!! '$tool' BASARISIZ (kod $rc)."
+    echo "!!! Aracin gercek arayuzu (--help) asagida. LUTFEN BU CIKTIYI PAYLASIN:"
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    if [ "$mode" = "py" ]; then
+      "$QNN_PY" "$BIN/$tool" --help 2>&1 | head -150 || true
+    else
+      "$BIN/$tool" --help 2>&1 | head -150 || true
+    fi
+    exit "$rc"
+  fi
+}
+
 if command -v qairt-converter >/dev/null 2>&1; then
   echo "==> QAIRT arac zinciri (qairt-converter + qairt-quantizer)"
 
   echo "  [1/3] qairt-converter: ONNX -> float DLC"
-  "$QNN_PY" "$BIN/qairt-converter" \
+  run_tool py qairt-converter \
     --input_network "$ONNX" \
     --output_path "$WORK/unet_fp.dlc"
 
   echo "  [2/3] qairt-quantizer: kalibrasyon (a${ACT_BW}w${WEIGHT_BW})"
-  "$QNN_PY" "$BIN/qairt-quantizer" \
+  run_tool py qairt-quantizer \
     --input_dlc "$WORK/unet_fp.dlc" \
     --input_list "$INPUT_LIST" \
     --act_bitwidth "$ACT_BW" \
@@ -88,7 +115,7 @@ if command -v qairt-converter >/dev/null 2>&1; then
     --output_dlc "$WORK/unet_quant.dlc"
 
   echo "  [3/3] qnn-context-binary-generator: DLC -> HTP binary"
-  qnn-context-binary-generator \
+  run_tool native qnn-context-binary-generator \
     --dlc_path "$WORK/unet_quant.dlc" \
     --backend "$HTP_BACKEND" \
     --config_file "$HTP_CFG" \
@@ -99,7 +126,7 @@ elif command -v qnn-onnx-converter >/dev/null 2>&1; then
   echo "==> Eski QNN arac zinciri (qnn-onnx-converter)"
 
   echo "  [1/3] qnn-onnx-converter (kuantizasyon dahil)"
-  "$QNN_PY" "$BIN/qnn-onnx-converter" \
+  run_tool py qnn-onnx-converter \
     --input_network "$ONNX" \
     --input_list "$INPUT_LIST" \
     --act_bw "$ACT_BW" --weight_bw "$WEIGHT_BW" --bias_bw "$BIAS_BW" \
@@ -107,12 +134,12 @@ elif command -v qnn-onnx-converter >/dev/null 2>&1; then
     --output_path "$WORK/unet.cpp"
 
   echo "  [2/3] qnn-model-lib-generator (.cpp -> .so)"
-  qnn-model-lib-generator \
+  run_tool native qnn-model-lib-generator \
     -c "$WORK/unet.cpp" -b "$WORK/unet.bin" \
     -o "$WORK/lib" -t x86_64-linux-clang
 
   echo "  [3/3] qnn-context-binary-generator (.so -> HTP binary)"
-  qnn-context-binary-generator \
+  run_tool native qnn-context-binary-generator \
     --model "$WORK/lib/x86_64-linux-clang/libunet.so" \
     --backend "$HTP_BACKEND" \
     --config_file "$HTP_CFG" \
