@@ -27,6 +27,15 @@ QNN_VERSION="${QNN_VERSION:-2.39}"   # ZIP/model_info surum etiketi
 SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/scripts" && pwd)"
 WORK="work/$NAME"
 
+# Aktivasyon bit genisligi: min (v69) 16-bit MatMul'u DESTEKLEMEZ -> 8-bit sart.
+# mid/high (v73+) 16-bit ile daha iyi kalite verir.
+if [ "$TIER" = "min" ]; then
+  export ACT_BW="${ACT_BW:-8}"
+else
+  export ACT_BW="${ACT_BW:-16}"
+fi
+echo "[*] Aktivasyon bit genisligi (ACT_BW) = $ACT_BW (tier=$TIER)"
+
 # Devam edilebilirlik: tamamlanmis adimlarin ciktisi varsa atlanir. Boylece
 # ayni runtime'da bu betigi tekrar calistirmak, kaldigi yerden devam eder
 # (yeniden export/MNN yapmaz). Zorla bastan yapmak icin: FORCE=1
@@ -42,7 +51,9 @@ fi
 
 # ONNX export surumu: 01_export_onnx.py ciktisi degisince arttir. Damga
 # eslesmiyorsa yeniden export edilir VE qnn/ (eski DLC/bin) temizlenir.
-EXPORT_VERSION="2"
+# v3: min tier v69 + 8-bit kuantizasyon (16-bit MatMul v69'da calismaz).
+# Bump edildigi icin eski a16 DLC gecersiz kilinir ve yeniden kuantize edilir.
+EXPORT_VERSION="3"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = "0" ] && [ -f "$WORK/onnx/text_encoder.onnx" ] \
    && [ -f "$WORK/onnx/unet_${RES%%,*}.onnx" ] \
