@@ -1,0 +1,18 @@
+# Calisma ve cikti klasorleri
+work/
+dist/
+*.zip
+*.safetensors
+*.onnx
+*.bin
+*.mnn
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# QNN ara ciktilari
+*.cpp
+*.raw

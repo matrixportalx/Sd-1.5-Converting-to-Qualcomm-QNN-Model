@@ -1,0 +1,15 @@
+# SD1.5 -> QNN dönüşüm toolkit'i Python bağımlılıkları
+# (ONNX export ve kalibrasyon adımları için. QNN SDK ve MNNConvert ayrı kurulur.)
+#
+# CPU yeterlidir; export sırasında GPU zorunlu değildir.
+# Sürümler diffusers'ın from_single_file API'siyle uyumlu olacak şekilde geniş
+# tutulmuştur; sorun olursa pinlemek için aşağıdaki denenmiş sürümleri kullanın.
+
+torch>=2.1
+diffusers>=0.27
+transformers>=4.38
+accelerate>=0.27
+safetensors>=0.4
+onnx>=1.15
+numpy>=1.24
+omegaconf>=2.3          # from_single_file (SD config) için gerekli olabilir
