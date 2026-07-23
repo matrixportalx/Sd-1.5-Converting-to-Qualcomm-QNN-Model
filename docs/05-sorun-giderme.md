@@ -4,6 +4,20 @@
 `export QNN_SDK_ROOT=/opt/qairt/2.28.0.241029` yapın ve
 `ls $QNN_SDK_ROOT/bin/x86_64-linux-clang/qnn-onnx-converter` ile doğrulayın.
 
+## `Python 3.12 is unsupported` / `libc++.so.1: cannot open shared object file`
+QAIRT/QNN python konvertörleri **Python 3.10** ve **libc++** ister. Çözüm:
+```bash
+export QNN_SDK_ROOT=...     # setup_qnn_sdk.py çıktısı
+bash scripts/setup_qnn_python.sh          # 3.10 venv + libc++ kurar
+export QNN_PYTHON="$(cat /content/qnn_py.path)"   # veya venv/bin/python yolu
+```
+`03_convert_unet_qnn.sh` `QNN_PYTHON` env'ini (veya `/content/qnn_py.path`
+dosyasını) otomatik kullanır. Colab notebook'ta 4. adım bunu otomatik yapar.
+
+## `Permission denied` (qairt-converter vb.)
+ZIP'ten açılan araçlar çalıştırma bitini kaybetmiş. `setup_qnn_sdk.py` bunu
+otomatik düzeltir; elle: `chmod -R +x "$QNN_SDK_ROOT/bin"`.
+
 ## `qnn-onnx-converter: command not found`
 SDK ortamını yükleyin: `source $QNN_SDK_ROOT/bin/envsetup.sh`. Bu, PATH ve
 PYTHONPATH'i ayarlar. Ayrıca converter'ın Python bağımlılıklarını kurun

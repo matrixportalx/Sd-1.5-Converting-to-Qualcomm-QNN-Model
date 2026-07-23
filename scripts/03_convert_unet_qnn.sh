@@ -52,6 +52,15 @@ export PATH="$BIN:$PATH"
 export LD_LIBRARY_PATH="$LIB:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$QNN_SDK_ROOT/lib/python:${PYTHONPATH:-}"
 
+# QAIRT/QNN python konvertorleri Python 3.10 ister. setup_qnn_python.sh bir
+# 3.10 venv kurup yolunu dosyaya yazar; QNN_PYTHON env veya o dosya kullanilir.
+QNN_PY="${QNN_PYTHON:-}"
+if [ -z "$QNN_PY" ] && [ -f /content/qnn_py.path ]; then
+  QNN_PY="$(cat /content/qnn_py.path)"
+fi
+[ -z "$QNN_PY" ] && QNN_PY="python3"
+echo "==> QAIRT python: $QNN_PY"
+
 WORK="$OUT/build/unet_${TAG}"
 mkdir -p "$WORK" "$OUT"
 
@@ -65,12 +74,12 @@ if command -v qairt-converter >/dev/null 2>&1; then
   echo "==> QAIRT arac zinciri (qairt-converter + qairt-quantizer)"
 
   echo "  [1/3] qairt-converter: ONNX -> float DLC"
-  qairt-converter \
+  "$QNN_PY" "$BIN/qairt-converter" \
     --input_network "$ONNX" \
     --output_path "$WORK/unet_fp.dlc"
 
   echo "  [2/3] qairt-quantizer: kalibrasyon (a${ACT_BW}w${WEIGHT_BW})"
-  qairt-quantizer \
+  "$QNN_PY" "$BIN/qairt-quantizer" \
     --input_dlc "$WORK/unet_fp.dlc" \
     --input_list "$INPUT_LIST" \
     --act_bitwidth "$ACT_BW" \
@@ -90,7 +99,7 @@ elif command -v qnn-onnx-converter >/dev/null 2>&1; then
   echo "==> Eski QNN arac zinciri (qnn-onnx-converter)"
 
   echo "  [1/3] qnn-onnx-converter (kuantizasyon dahil)"
-  qnn-onnx-converter \
+  "$QNN_PY" "$BIN/qnn-onnx-converter" \
     --input_network "$ONNX" \
     --input_list "$INPUT_LIST" \
     --act_bw "$ACT_BW" --weight_bw "$WEIGHT_BW" --bias_bw "$BIAS_BW" \
