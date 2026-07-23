@@ -11,6 +11,7 @@ transformers>=4.38
 accelerate>=0.27
 safetensors>=0.4
 onnx>=1.15
+onnxscript>=0.1            # yeni torch.onnx.export bunu içe aktarıyor
 numpy>=1.24
 omegaconf>=2.3          # from_single_file (SD config) için gerekli olabilir
 requests>=2.31          # model indirme (scripts/fetch_model.py)

@@ -24,12 +24,25 @@ from common import (LATENT_CHANNELS, TEXT_SEQ_LEN, parse_resolutions,
                     DEFAULT_RESOLUTIONS)
 
 
+def onnx_export(*args, **kwargs):
+    """torch.onnx.export sarmalayici.
+
+    Yeni torch surumlerinde varsayilan 'dynamo' exporter onnxscript ister ve
+    bazen bu wrapper modelleri farkli ele alir. Kararli TorchScript yolunu
+    (dynamo=False) tercih ederiz; desteklemeyen eski surumlerde geri duseriz.
+    """
+    try:
+        return torch.onnx.export(*args, dynamo=False, **kwargs)
+    except TypeError:
+        return torch.onnx.export(*args, **kwargs)
+
+
 def export_text_encoder(pipe, out_dir, opset):
     te = pipe.text_encoder.eval()
     path = os.path.join(out_dir, "text_encoder.onnx")
     dummy = torch.randint(0, 1000, (1, TEXT_SEQ_LEN), dtype=torch.int32)
     print(f"[*] text_encoder -> {path}")
-    torch.onnx.export(
+    onnx_export(
         te, (dummy,), path,
         input_names=["input_ids"],
         output_names=["last_hidden_state", "pooler_output"],
@@ -54,7 +67,7 @@ def export_vae_decoder(pipe, out_dir, opset, res0):
     path = os.path.join(out_dir, "vae_decoder.onnx")
     dummy = torch.randn(1, LATENT_CHANNELS, res0.latent_h, res0.latent_w)
     print(f"[*] vae_decoder -> {path}")
-    torch.onnx.export(
+    onnx_export(
         Decoder(vae), (dummy,), path,
         input_names=["latent"],
         output_names=["image"],
@@ -81,7 +94,7 @@ def export_unet(pipe, out_dir, opset, res):
     timestep = torch.tensor(1, dtype=torch.int64)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
-    torch.onnx.export(
+    onnx_export(
         UNetWrap(unet), (sample, timestep, ehs), path,
         input_names=["sample", "timestep", "encoder_hidden_states"],
         output_names=["noise_pred"],
