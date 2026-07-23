@@ -40,13 +40,22 @@ else
       --output "$WORK/pipeline"
 fi
 
+# ONNX export surumu: 01_export_onnx.py ciktisi degisince arttir. Damga
+# eslesmiyorsa yeniden export edilir VE qnn/ (eski DLC/bin) temizlenir.
+EXPORT_VERSION="2"
+STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = "0" ] && [ -f "$WORK/onnx/text_encoder.onnx" ] \
-   && [ -f "$WORK/onnx/unet_${RES%%,*}.onnx" ]; then
-  echo "############ 1) diffusers -> ONNX  [ATLANDI - zaten var]"
+   && [ -f "$WORK/onnx/unet_${RES%%,*}.onnx" ] \
+   && [ -f "$STAMP" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$EXPORT_VERSION" ]; then
+  echo "############ 1) diffusers -> ONNX  [ATLANDI - guncel (v$EXPORT_VERSION)]"
 else
-  echo "############ 1) diffusers -> ONNX"
+  echo "############ 1) diffusers -> ONNX  (export v$EXPORT_VERSION)"
   python3 "$SDIR/01_export_onnx.py" --pipeline "$WORK/pipeline" \
       --output "$WORK/onnx" --resolutions "$RES"
+  echo "$EXPORT_VERSION" > "$STAMP"
+  # ONNX degisti -> eski QNN ciktilarini (DLC/bin) gecersiz kil
+  echo "    [temizlik] eski qnn/ ciktilari siliniyor (yeniden uretilecek)"
+  rm -rf "$WORK/qnn"
 fi
 
 if [ "$FORCE" = "0" ] && [ -f "$WORK/mnn/text_encoder.mnn" ] \

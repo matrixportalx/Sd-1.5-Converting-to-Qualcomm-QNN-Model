@@ -13,36 +13,23 @@ $QNN_SDK_ROOT/examples icindeki htp config orneklerini referans alin.
 """
 import argparse
 import json
+import os
 
 from soc_targets import get_tier
 
 
-def build_config(tier_name: str) -> dict:
+def build_ext_config(tier_name: str) -> dict:
+    """HTP backend-uzantisi (netrun extensions) config'i: graph/device ayarlari.
+    Bu dosya ANA config'ten degil, backend_extensions.config_file_path ile
+    referans edilir. graphs/devices anahtarlari BURADA gecerlidir."""
     t = get_tier(tier_name)
     return {
-        "backend_extensions": {
-            "shared_library_path": "libQnnHtpNetRunExtensions.so",
-        },
-        "context": {
-            # Agirliklari context binary icine gom (cihazda tek dosya)
-            "weight_sharing_enabled": False,
-        },
         "graphs": [
-            {
-                # HTP optimizasyon seviyesi: 3 = en agresif (offline hazirlik)
-                "O": 3,
-                "vtcm_mb": 8,
-                "fp16_relaxed_precision": True,
-            }
+            {"vtcm_mb": 8, "O": 3}
         ],
         "devices": [
-            {
-                "dsp_arch": t["dsp_arch"],
-                "soc_id": t["soc_id"],
-                "soc_model": t["soc_model"],
-                "pd_session": "unsigned",
-                "cores": [{"core_id": 0, "perf_profile": "burst"}],
-            }
+            # dsp_arch belirleyici: v68 = en genis uyumluluk (Snapdragon 7 dahil)
+            {"dsp_arch": t["dsp_arch"]}
         ],
     }
 
@@ -50,14 +37,31 @@ def build_config(tier_name: str) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tier", default="min", choices=["min", "mid", "high"])
-    ap.add_argument("--output", required=True)
+    ap.add_argument("--output", required=True,
+                    help="Ana config yolu (qnn-context-binary-generator --config_file)")
     args = ap.parse_args()
 
-    cfg = build_config(args.tier)
+    t = get_tier(args.tier)
+    out_dir = os.path.dirname(os.path.abspath(args.output))
+    ext_path = os.path.join(out_dir, f"htp_ext_{args.tier}.json")
+
+    # 1) Backend-uzantisi (graph/device) dosyasi
+    with open(ext_path, "w") as f:
+        json.dump(build_ext_config(args.tier), f, indent=2)
+
+    # 2) Ana config: yalnizca backend_extensions (uzanti .so + ext config yolu)
+    main_cfg = {
+        "backend_extensions": {
+            "shared_library_path": "libQnnHtpNetRunExtensions.so",
+            "config_file_path": ext_path,
+        }
+    }
     with open(args.output, "w") as f:
-        json.dump(cfg, f, indent=2)
-    print(f"[+] HTP config yazildi (tier={args.tier}, "
-          f"dsp_arch={cfg['devices'][0]['dsp_arch']}) -> {args.output}")
+        json.dump(main_cfg, f, indent=2)
+
+    print(f"[+] HTP config yazildi (tier={args.tier}, dsp_arch={t['dsp_arch']})")
+    print(f"    ana : {args.output}")
+    print(f"    ext : {ext_path}")
 
 
 if __name__ == "__main__":

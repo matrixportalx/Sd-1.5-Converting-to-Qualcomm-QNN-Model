@@ -116,7 +116,9 @@ def export_unet(pipe, out_dir, opset, res):
 
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)
-    timestep = torch.tensor(1, dtype=torch.int64)
+    # timestep RANK-1 ([1]) olmali; skaler (rank-0) HTP'de desteklenmiyor
+    # ('/unet/Unsqueeze incorrect Rank 0'). Kalibrasyon verisi de [1] sekilli.
+    timestep = torch.tensor([1], dtype=torch.float32)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
     onnx_export(
