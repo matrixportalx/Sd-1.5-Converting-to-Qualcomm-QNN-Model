@@ -30,13 +30,26 @@ python3.10 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 
 echo "==> QAIRT python bagimliliklari"
-# QAIRT araclari numpy 1.x ister; onnx + yaml + packaging de gerekir
-"$VENV/bin/pip" install -q "numpy<2" onnx pyyaml packaging protobuf || true
-# SDK kendi requirements dosyasini sunuyorsa onu da uygula
+# Once SDK kendi requirements dosyasini sunuyorsa onu dene
 REQ="$(find "$QNN_SDK_ROOT" -name 'requirements.txt' -path '*python*' 2>/dev/null | head -1 || true)"
 if [ -n "$REQ" ]; then
   echo "    SDK requirements: $REQ"
   "$VENV/bin/pip" install -q -r "$REQ" || echo "    (bazi paketler atlandi)"
+fi
+# KRITIK: onnx + UYUMLU protobuf sabitle. protobuf 6.x, PyPI onnx'in C uzantisini
+# bozar ve qairt-converter 'onnx=None -> AttributeProto' hatasi verir.
+# onnx 1.16 + protobuf 4.25 QAIRT 2.39 ile bilinen calisan kombinasyondur.
+"$VENV/bin/pip" install -q "numpy==1.26.4" "protobuf==4.25.5" "onnx==1.16.1" \
+                          onnxruntime pyyaml packaging || true
+# onnx gercekten yuklenebiliyor mu? (AttributeProto erisimi)
+"$VENV/bin/python" -c "import onnx; assert onnx.AttributeProto.INT is not None; \
+  print('    onnx', onnx.__version__, 'OK')" \
+  || echo "    [uyari] onnx hala import edilemiyor; ciktidaki hataya bakin"
+
+# SDK'nin kendi bagimlilik denetimi (bilgi amacli)
+if [ -x "$QNN_SDK_ROOT/bin/check-python-dependency" ]; then
+  PYTHONPATH="$QNN_SDK_ROOT/lib/python:${PYTHONPATH:-}" \
+    "$VENV/bin/python" "$QNN_SDK_ROOT/bin/check-python-dependency" 2>/dev/null || true
 fi
 
 # Dogrulama: pybind yuklenebiliyor mu?
