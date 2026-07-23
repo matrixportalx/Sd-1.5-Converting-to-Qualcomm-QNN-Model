@@ -46,6 +46,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$QNN_SDK_ROOT/bin/x86_64-linux-clang"
 LIB="$QNN_SDK_ROOT/lib/x86_64-linux-clang"
+# ZIP'ten acilan araclar calistirma izni kaybetmis olabilir
+chmod -R +x "$QNN_SDK_ROOT/bin" 2>/dev/null || true
 export PATH="$BIN:$PATH"
 export LD_LIBRARY_PATH="$LIB:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$QNN_SDK_ROOT/lib/python:${PYTHONPATH:-}"

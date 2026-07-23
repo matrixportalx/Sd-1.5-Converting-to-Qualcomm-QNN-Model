@@ -94,6 +94,25 @@ def find_sdk_root(base):
     return None
 
 
+def make_bins_executable(sdk_root):
+    """ZIP acilinca kaybolan calistirma bitlerini geri ver ('bin/' altindaki
+    tum dosyalara +x). QAIRT/QNN araclari aksi halde 'Permission denied' verir."""
+    import stat
+    count = 0
+    for d, _, files in os.walk(sdk_root):
+        if "bin" not in d.split(os.sep):
+            continue
+        for fn in files:
+            p = os.path.join(d, fn)
+            try:
+                st = os.stat(p)
+                os.chmod(p, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                count += 1
+            except OSError:
+                pass
+    print(f"[*] {count} dosyaya calistirma izni verildi (bin/)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", default="matrixportalx/qairt-sdk")
@@ -127,6 +146,7 @@ def main():
         sys.exit("HATA: QNN_SDK_ROOT bulunamadi "
                  "(bin/x86_64-linux-clang/ icinde converter yok).")
 
+    make_bins_executable(root)
     print(f"[+] QNN_SDK_ROOT = {root}")
     if args.github_env and os.environ.get("GITHUB_ENV"):
         with open(os.environ["GITHUB_ENV"], "a") as f:
