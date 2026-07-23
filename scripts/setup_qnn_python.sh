@@ -17,6 +17,22 @@ set -euo pipefail
 VENV="${1:-/content/qairt-venv}"
 OUT_PATH="${2:-/content/qnn_py.path}"
 
+echo "==> Bellek: swap (kuantizasyon RAM-yogun; OOM/Killed'i azaltir)"
+# Standart Colab ~12 GB; qairt-quantizer fp32 UNet'i CPU'da calistirirken
+# bunu asabilir. Swap yoksa buyuk bir swap ekle (High-RAM runtime en iyisidir).
+if ! swapon --show 2>/dev/null | grep -q .; then
+  SWAPFILE="${SWAPFILE:-/content/swapfile}"
+  ( fallocate -l 24G "$SWAPFILE" 2>/dev/null \
+      || dd if=/dev/zero of="$SWAPFILE" bs=1M count=24576 2>/dev/null ) \
+    && chmod 600 "$SWAPFILE" && mkswap "$SWAPFILE" >/dev/null 2>&1 \
+    && swapon "$SWAPFILE" 2>/dev/null \
+    && echo "    24G swap etkin: $SWAPFILE" \
+    || echo "    [uyari] swap eklenemedi (yetki/disk?); High-RAM runtime onerilir"
+else
+  echo "    swap zaten etkin"
+fi
+free -h || true
+
 echo "==> Sistem paketleri (python3.10 + libc++)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update

@@ -69,9 +69,10 @@ for tag in "${RES_ARR[@]}"; do
     echo "  --- $tag: kalibrasyon [ATLANDI - zaten var]"
   else
     echo "  --- $tag: kalibrasyon verisi"
+    # Kalibrasyon ornek sayisi (prompt x adim). Az RAM'de dusuk tutun.
     python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
         --resolution "$tag" --output "$WORK/calib/$tag" --mode real \
-        --num-samples 6 --steps 15
+        --num-samples "${CALIB_PROMPTS:-4}" --steps "${CALIB_STEPS:-4}"
   fi
   echo "  --- $tag: UNet -> QNN (tier=$TIER)"
   ( cd "$SDIR" && ./03_convert_unet_qnn.sh \
