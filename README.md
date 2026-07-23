@@ -94,6 +94,20 @@ Model** ile içe aktarın.
 
 Adımları tek tek çalıştırmak isterseniz: [`docs/03-donusum-adimlari.md`](docs/03-donusum-adimlari.md)
 
+### 🚀 Otomatik: Colab veya GitHub Actions
+
+Kendi Linux'unuz yoksa **link gir → dönüştür → HF reponuza yükle** akışını
+hazır bir **Colab notebook** ile yapabilirsiniz:
+
+- **Colab (önerilen):** [`notebooks/SD15_to_QNN_Colab.ipynb`](notebooks/SD15_to_QNN_Colab.ipynb)
+  — safetensors linki + HF token girin, gerisini yapar. (High-RAM runtime + QNN SDK'yı
+  bir kez Drive'a yüklemeniz gerekir.)
+- **GitHub Actions:** [`.github/workflows/convert.yml`](.github/workflows/convert.yml)
+  — **yalnızca self-hosted runner'da** çalışır (ücretsiz runner'lar RAM ve SDK
+  lisansı nedeniyle yetersiz).
+
+Ayrıntı ve kısıtlar: [`docs/06-otomasyon.md`](docs/06-otomasyon.md)
+
 ---
 
 ## Adımlar (özet)

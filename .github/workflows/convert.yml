@@ -1,0 +1,101 @@
+name: Convert SD1.5 -> QNN
+
+# ============================================================================
+# ÖNEMLİ — Bu workflow SADECE bir SELF-HOSTED RUNNER üzerinde çalışır.
+#
+# Neden GitHub'ın ücretsiz (github-hosted) runner'ları OLMAZ?
+#   * QNN kuantizasyonu 512px için bile ~20 GB+ RAM ister; ücretsiz runner ~7 GB.
+#   * Qualcomm QNN SDK 2.28 lisanslıdır ve otomatik indirilemez; runner'a önceden
+#     kurulmuş olmalıdır.
+#
+# Kurulum (kendi Linux makinenizde, bir kez):
+#   1. Depo -> Settings -> Actions -> Runners -> "New self-hosted runner" adımları.
+#   2. Makinede QNN SDK 2.28'i açın ve kalıcı env verin (runner .env veya profil):
+#         QNN_SDK_ROOT=/opt/qairt/2.28.0.241029
+#      İsterseniz runner'a şu label'ı verin: "qnn"
+#   3. MNN converter: `pip install MNN` (mnnconvert komutu) yeterli.
+#   4. Depo Secrets: HF_TOKEN (write), gerekiyorsa CIVITAI_TOKEN.
+#
+# Çalıştırma: Actions sekmesi -> "Convert SD1.5 -> QNN" -> Run workflow.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      safetensors_url:
+        description: "safetensors indirme linki (civitai / HF / düz link)"
+        required: true
+        type: string
+      model_name:
+        description: "Model adı (ör. AbsoluteReality)"
+        required: true
+        type: string
+      tier:
+        description: "Hedef tier (Snapdragon 7 için min)"
+        required: true
+        default: "min"
+        type: choice
+        options: ["min", "mid", "high"]
+      resolutions:
+        description: "Çözünürlükler"
+        required: true
+        default: "512x512"
+        type: string
+      hf_repo:
+        description: "HF hedef repo (kullanici/repo). Boş = yükleme yok"
+        required: false
+        type: string
+
+jobs:
+  convert:
+    # Self-hosted runner'ınıza "qnn" label'ı verdiyseniz bunu kullanın:
+    #   runs-on: [self-hosted, linux, qnn]
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 1440
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sanity check (QNN SDK + MNN)
+        run: |
+          set -e
+          test -n "$QNN_SDK_ROOT" || { echo "QNN_SDK_ROOT ayarlı değil (runner env)"; exit 1; }
+          test -x "$QNN_SDK_ROOT/bin/x86_64-linux-clang/qnn-onnx-converter" \
+            || { echo "qnn-onnx-converter bulunamadı"; exit 1; }
+          command -v mnnconvert >/dev/null || pip install MNN
+          echo "QNN_SDK_ROOT=$QNN_SDK_ROOT"
+
+      - name: Install python deps
+        run: pip install -r requirements.txt
+
+      - name: Download model
+        env:
+          CIVITAI_TOKEN: ${{ secrets.CIVITAI_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/fetch_model.py \
+            --url "${{ inputs.safetensors_url }}" \
+            --output work/input.safetensors
+
+      - name: Convert
+        env:
+          MNNCONVERT: mnnconvert
+        run: |
+          chmod +x convert_all.sh scripts/*.sh
+          ./convert_all.sh work/input.safetensors \
+            "${{ inputs.model_name }}" "${{ inputs.tier }}" "${{ inputs.resolutions }}"
+
+      - name: Upload artifact (indirilebilir zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.model_name }}-qnn2.28-${{ inputs.tier }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Upload to Hugging Face
+        if: ${{ inputs.hf_repo != '' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          ZIP=$(ls -1 dist/*.zip | head -n1)
+          python scripts/upload_hf.py --repo "${{ inputs.hf_repo }}" --file "$ZIP"
