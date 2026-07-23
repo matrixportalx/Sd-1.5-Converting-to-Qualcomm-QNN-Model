@@ -4,7 +4,7 @@
 
 civitai.red / Hugging Face üzerindeki **Stable Diffusion 1.5** tabanlı
 `.safetensors` modellerini, **Ruya / Local Dream** uygulamasının Snapdragon
-NPU'sunda çalıştırdığı **`<isim>_qnn2.28_min.zip`** paketine dönüştürür.
+NPU'sunda çalıştırdığı **`<isim>_qnn2.39_min.zip`** paketine dönüştürür.
 
 Hedef: Snapdragon 8 için yapılmış dönüşümleri kullanamayan **Snapdragon 7**
 (ve diğer "flagship olmayan") cihazlarda güncel modelleri çalıştırabilmek.
@@ -51,5 +51,5 @@ diffusers pipeline  ── text_encoder ─┐
                                           (adım 5) hepsini paketle ◄─────┘
                                                        │
                                                        ▼
-                                      <isim>_qnn2.28_min.zip
+                                      <isim>_qnn2.39_min.zip
 ```

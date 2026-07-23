@@ -8,7 +8,7 @@ Kullanim:
     python gen_htp_config.py --tier min --output work/htp_min.json
 
 NOT: HTP config semasi QNN SDK surumune gore ufak farkliliklar gosterebilir.
-Asagidaki alanlar QNN 2.28 icin gecerlidir. Uyumsuzluk olursa
+Asagidaki alanlar QNN/QAIRT 2.x icin gecerlidir. Uyumsuzluk olursa
 $QNN_SDK_ROOT/examples icindeki htp config orneklerini referans alin.
 """
 import argparse

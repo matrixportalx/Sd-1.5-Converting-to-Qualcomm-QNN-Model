@@ -8,7 +8,8 @@ var. Örnek model adı: `AbsoluteReality`, tier: `min` (Snapdragon 7).
 
 ```bash
 source .venv/bin/activate
-export QNN_SDK_ROOT=/opt/qairt/2.28.0.241029
+python scripts/setup_qnn_sdk.py --dest ./qairt   # release'ten indir
+export QNN_SDK_ROOT="$(python scripts/setup_qnn_sdk.py --dest ./qairt | sed -n 's/^QNN_SDK_ROOT=//p' | tail -1)"
 export MNNCONVERT=/opt/MNN/build/MNNConvert
 NAME=AbsoluteReality
 WORK=work/$NAME
@@ -80,7 +81,7 @@ Sonuç: `$WORK/qnn/unet_512x512.bin`, ... (hedef `tier=min → v68`).
 Kuantizasyon genişliğini değiştirmek için:
 `ACT_BW=16 WEIGHT_BW=8 ./scripts/03_convert_unet_qnn.sh ...`
 
-## Adım 5 — Paketle → `_qnn2.28_min.zip`
+## Adım 5 — Paketle → `_qnn2.39_min.zip`
 
 ```bash
 python scripts/05_package.py \
@@ -91,7 +92,7 @@ python scripts/05_package.py \
     --output dist
 ```
 
-Sonuç: `dist/AbsoluteReality_qnn2.28_min.zip`
+Sonuç: `dist/AbsoluteReality_qnn2.39_min.zip`
 
 ## Telefona aktarma
 

@@ -35,9 +35,11 @@ Bu yüzden geniş uyumluluk isteyen (Snapdragon 7) **en düşük** mimariyi hede
 
 | Tier | dsp_arch | ZIP eki | Kapsam |
 |---|---|---|---|
-| **min** | v68 | `_qnn2.28_min` | SD1.5 destekleyen **tüm** cihazlar (V68+). **Snapdragon 7 buradadır.** |
-| mid | v73 | `_qnn2.28` | 8 Gen 2 / 7+ Gen 2 / 8s Gen 3 ve üzeri |
-| high | v75 | `_qnn2.28_8gen3` | 8 Gen 3 ve üzeri (en yüksek performans) |
+| **min** | v68 | `_qnn2.39_min` | SD1.5 destekleyen **tüm** cihazlar (V68+). **Snapdragon 7 buradadır.** |
+| mid | v73 | `_qnn2.39` | 8 Gen 2 / 7+ Gen 2 / 8s Gen 3 ve üzeri |
+| high | v75 | `_qnn2.39_8gen3` | 8 Gen 3 ve üzeri (en yüksek performans) |
+
+> Sürüm etiketi (`2.39`) `QNN_VERSION` env / `--qnn-version` ile değiştirilebilir.
 
 ### Hangi tier'i seçmeliyim?
 

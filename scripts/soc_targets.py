@@ -55,16 +55,20 @@ KNOWN_SOCS = [
 #   high -> v75 tabanli. 8 Gen 3 ve uzeri (en iyi performans).
 #
 # Ruya uygulamaniz "..._qnn2.28_min.zip" istedigi icin sizin tier'iniz "min".
+# ZIP eki: _qnn<surum><tail>  (surum --qnn-version ile, varsayilan 2.39)
 TIERS = {
     "min":  {"dsp_arch": "v68", "soc_model": "SM8450", "soc_id": 36,
+             "tail": "_min",
              "desc": "En genis uyumluluk (V68+). Snapdragon 7 Gen 1, 7s Gen 2, "
-                     "8 Gen 1 ve tum ust cihazlar. ZIP eki: _qnn2.28_min"},
+                     "8 Gen 1 ve tum ust cihazlar. ZIP eki: _qnn<surum>_min"},
     "mid":  {"dsp_arch": "v73", "soc_model": "SM8550", "soc_id": 43,
+             "tail": "",
              "desc": "Snapdragon 8 Gen 2 / 7+ Gen 2 / 8s Gen 3 ve uzeri. "
-                     "ZIP eki: _qnn2.28"},
+                     "ZIP eki: _qnn<surum>"},
     "high": {"dsp_arch": "v75", "soc_model": "SM8650", "soc_id": 57,
+             "tail": "_8gen3",
              "desc": "Snapdragon 8 Gen 3 ve uzeri (en yuksek performans). "
-                     "ZIP eki: _qnn2.28_8gen3"},
+                     "ZIP eki: _qnn<surum>_8gen3"},
 }
 
 

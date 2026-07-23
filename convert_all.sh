@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
-# convert_all.sh — Uctan uca: safetensors -> Local Dream _qnn2.28_min.zip
+# convert_all.sh — Uctan uca: safetensors -> Local Dream _qnn2.39_min.zip
 #
 # Tum adimlari (0..5) tek komutta calistirir. Snapdragon 7 icin varsayilan
 # tier "min"dir (en genis uyumluluk).
 #
 # On kosullar:
 #   * Linux (veya WSL2), 20 GB+ RAM (512px), yuksek cozunurluk icin 64 GB+.
-#   * export QNN_SDK_ROOT=/opt/qairt/2.28.0.241029   (AI Engine Direct 2.28)
+#   * export QNN_SDK_ROOT=...   (scripts/setup_qnn_sdk.py ile release'ten indirin)
 #   * MNNConvert derlenmis  (export MNNCONVERT=/yol/MNN/build/MNNConvert)
 #   * pip install -r requirements.txt
 #
 # Kullanim:
-#   export QNN_SDK_ROOT=/opt/qairt/2.28.0.241029
-#   export MNNCONVERT=/opt/MNN/build/MNNConvert
+#   export QNN_SDK_ROOT="$(python scripts/setup_qnn_sdk.py --dest ./qairt | sed -n 's/^QNN_SDK_ROOT=//p' | tail -1)"
+#   export MNNCONVERT=mnnconvert   # pip install MNN
 #   ./convert_all.sh /indirilenler/AbsoluteReality.safetensors AbsoluteReality min
 #
 set -euo pipefail
@@ -22,6 +22,7 @@ CKPT="${1:?safetensors dosya yolu gerekli}"
 NAME="${2:?Model adi gerekli (or. AbsoluteReality)}"
 TIER="${3:-min}"                 # min | mid | high
 RES="${4:-512x512,512x768,768x512}"
+QNN_VERSION="${QNN_VERSION:-2.39}"   # ZIP/model_info surum etiketi
 
 SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/scripts" && pwd)"
 WORK="work/$NAME"
@@ -52,14 +53,16 @@ for tag in "${RES_ARR[@]}"; do
       "$TIER" "../$WORK/qnn" "$tag" )
 done
 
-echo "############ 5) paketle -> _qnn2.28_${TIER}.zip"
+echo "############ 5) paketle -> _qnn${QNN_VERSION}_${TIER}.zip"
 python3 "$SDIR/05_package.py" --name "$NAME" --tier "$TIER" \
+    --qnn-version "$QNN_VERSION" \
     --qnn "$WORK/qnn" --mnn "$WORK/mnn" \
     --tokenizer "$WORK/pipeline/tokenizer" \
     --resolutions "$RES" --output dist
 
+TAIL=""; [ "$TIER" = "min" ] && TAIL="_min"; [ "$TIER" = "high" ] && TAIL="_8gen3"
 echo
 echo "########################################################"
-echo " BITTI. Cikti: dist/${NAME}_qnn2.28_${TIER}.zip"
+echo " BITTI. Cikti: dist/${NAME}_qnn${QNN_VERSION}${TAIL}.zip"
 echo " Bu ZIP'i telefondaki Ruya/Local Dream 'Import Custom Model' ile alin."
 echo "########################################################"

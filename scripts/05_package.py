@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Adim 5 — Bilesenleri Local Dream (Ruya) klasor yapisinda topla ve
-`<isim>_qnn2.28_min.zip` olarak paketle.
+`<isim>_qnn<surum>_min.zip` (varsayilan surum 2.39) olarak paketle.
 
 Beklenen icerik (Local Dream SD1.5 / NPU modeli):
     <isim>/
@@ -31,13 +31,21 @@ import zipfile
 
 from soc_targets import get_tier
 
-TIER_SUFFIX = {"min": "_qnn2.28_min", "mid": "_qnn2.28", "high": "_qnn2.28_8gen3"}
+# tier -> ZIP ekindeki tier parcasi (sürüm ayri --qnn-version ile eklenir)
+TIER_TAIL = {"min": "_min", "mid": "", "high": "_8gen3"}
+
+
+def zip_suffix(qnn_version: str, tier: str) -> str:
+    """Ornek: (2.39, min) -> '_qnn2.39_min'"""
+    return f"_qnn{qnn_version}{TIER_TAIL[tier]}"
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True, help="Model adi (or. AbsoluteReality)")
     ap.add_argument("--tier", default="min", choices=["min", "mid", "high"])
+    ap.add_argument("--qnn-version", default="2.39",
+                    help="ZIP/model_info sürüm etiketi (varsayilan: 2.39)")
     ap.add_argument("--qnn", default="work/qnn", help="unet_*.bin klasoru")
     ap.add_argument("--mnn", default="work/mnn", help="text_encoder.mnn / vae.mnn")
     ap.add_argument("--tokenizer", default="work/pipeline/tokenizer")
@@ -82,7 +90,7 @@ def main() -> None:
     model_info = {
         "name": args.name,
         "base": "sd1.5",
-        "runtime": "qnn2.28",
+        "runtime": f"qnn{args.qnn_version}",
         "tier": args.tier,
         "dsp_arch": tier["dsp_arch"],
         "resolutions": included_res,
@@ -94,7 +102,7 @@ def main() -> None:
         json.dump(model_info, f, indent=2, ensure_ascii=False)
 
     # ZIP
-    zip_name = f"{args.name}{TIER_SUFFIX[args.tier]}.zip"
+    zip_name = f"{args.name}{zip_suffix(args.qnn_version, args.tier)}.zip"
     zip_path = os.path.join(args.output, zip_name)
     if os.path.exists(zip_path):
         os.remove(zip_path)

@@ -17,11 +17,11 @@ Colab'da açmak için depoyu GitHub'a yükledikten sonra:
 3. Colab **Secrets** (🔑) içine ekle: `HF_TOKEN` (write), gerekiyorsa `CIVITAI_TOKEN`.
 4. Hücreleri sırayla çalıştır.
 
-### Zorunlu tek manuel adım: QNN SDK
-QNN SDK 2.28 **Qualcomm lisansı** yüzünden otomatik indirilemez. Bir kez:
-1. Qualcomm AI Hub / QPM'den `v2.28.0.241029` indir.
-2. Google Drive'a `.zip` olarak yükle (ör. `MyDrive/qnn/v2.28.0.241029.zip`).
-3. Notebook'ta yolunu `QNN_SDK_ZIP_ON_DRIVE` alanına yaz — notebook mount edip açar.
+### SDK otomatik — manuel adım yok
+QAIRT SDK **`matrixportalx/qairt-sdk` v2.39.0.250926** release'inden otomatik
+indirilir (`scripts/setup_qnn_sdk.py`). Release **public** olduğu için token bile
+gerekmez; Qualcomm'dan indirme veya Drive'a yükleme **yok**. (Release'i private
+yaparsan Colab Secrets'a `GH_TOKEN` ekle.)
 
 ### Kısıtlar
 - **RAM:** 512px için ~20 GB gerekir. Ücretsiz Colab (12 GB) OOM olabilir; notebook
@@ -35,19 +35,19 @@ QNN SDK 2.28 **Qualcomm lisansı** yüzünden otomatik indirilemez. Bir kez:
 
 **Dosya:** [`.github/workflows/convert.yml`](../.github/workflows/convert.yml)
 
-> **Ücretsiz (github-hosted) runner'lar ÇALIŞMAZ.** Sebep: ~7 GB RAM (20 GB+ gerekli)
-> ve QNN SDK'nın lisanslı olup otomatik indirilememesi.
+> **Ücretsiz (github-hosted) runner'lar ÇALIŞMAZ.** Tek sebep artık **RAM**:
+> ~7 GB var, 20 GB+ gerekli. (SDK otomatik indirildiği için lisans sorunu yok.)
 
-Kendi güçlü Linux makineniz varsa self-hosted runner olarak bağlayın:
+SDK'yı workflow zaten release'ten otomatik indirir; sadece yeterli RAM'li bir
+runner gerekir:
 
-1. **Depo → Settings → Actions → Runners → New self-hosted runner** adımlarını izleyin.
-2. Makinede QNN SDK 2.28'i açın ve runner'a kalıcı env verin:
-   ```
-   QNN_SDK_ROOT=/opt/qairt/2.28.0.241029
-   ```
-3. `pip install MNN` (mnnconvert komutu).
-4. **Depo Secrets:** `HF_TOKEN` (write), gerekiyorsa `CIVITAI_TOKEN`.
-5. **Actions → "Convert SD1.5 -> QNN" → Run workflow** → linki ve model adını girin.
+1. **Depo → Settings → Actions → Runners → New self-hosted runner** (kendi 32 GB+
+   Linux makineniz). *Alternatif:* GitHub "larger runner" (ücretli) — `runs-on`'u
+   değiştirin.
+2. **Depo Secrets:** `HF_TOKEN` (write), gerekiyorsa `CIVITAI_TOKEN`.
+   (qairt-sdk release public ise `GH_TOKEN` gerekmez.)
+3. **Actions → "Convert SD1.5 -> QNN" → Run workflow** → linki, model adını,
+   `qnn_version` (varsayılan 2.39) girin.
 
 Çıktı hem **artifact** olarak indirilebilir hem de `hf_repo` doldurulduysa HF'ye yüklenir.
 

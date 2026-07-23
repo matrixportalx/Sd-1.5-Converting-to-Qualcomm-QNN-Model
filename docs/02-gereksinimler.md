@@ -35,27 +35,32 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 4. Qualcomm AI Engine Direct (QNN) SDK — **sürüm 2.28**
+## 4. QAIRT / QNN SDK — **sürüm 2.39** (release'ten otomatik)
 
-1. Qualcomm hesabıyla **Qualcomm AI Hub** veya **Qualcomm Package Manager (QPM)**
-   üzerinden **Qualcomm AI Engine Direct SDK 2.28** (`v2.28.0.241029`) indirin.
-2. Bir yere açın ve ortam değişkenini ayarlayın:
+Ruya derlemesinde kullanılan SDK, bir GitHub release'i olarak yayında:
+**`matrixportalx/qairt-sdk` → `v2.39.0.250926`**. Bu yüzden Qualcomm'dan manuel
+indirmeye gerek yok — dahili yardımcı script otomatik indirir:
 
 ```bash
-export QNN_SDK_ROOT=/opt/qairt/2.28.0.241029
-# doğrulama:
-ls "$QNN_SDK_ROOT/bin/x86_64-linux-clang/qnn-onnx-converter"
+python scripts/setup_qnn_sdk.py --dest ./qairt
+# çıktının son satırındaki yolu kullanın:
+export QNN_SDK_ROOT=$(python scripts/setup_qnn_sdk.py --dest ./qairt | sed -n 's/^QNN_SDK_ROOT=//p' | tail -1)
+ls "$QNN_SDK_ROOT/bin/x86_64-linux-clang/"   # qairt-converter / qnn-onnx-converter
 ```
 
-> **Neden tam olarak 2.28?** Paket adındaki `qnn2.28`, uygulamanın beklediği
-> runtime sürümüdür. Başka bir SDK sürümüyle üretilen binary uyumsuz olabilir.
+- Release **public** ise token gerekmez. Private ise: `export GH_TOKEN=ghp_...`
+- Farklı sürüm/asset için: `--repo <owner/repo> --tag <tag>` veya `--asset-url <url>`.
 
-QNN converter'ın kendi Python bağımlılıkları vardır; SDK içindeki
-`$QNN_SDK_ROOT/bin/check-python-dependency` veya
-`$QNN_SDK_ROOT/bin/envsetup.sh` ile kurun:
+> **Sürüm notu:** Çıktı ZIP'i varsayılan olarak `_qnn2.39_min` etiketlenir
+> (`QNN_VERSION` env ile değiştirilebilir). QAIRT 2.39, yeni `qairt-converter` +
+> `qairt-quantizer` araç zincirini kullanır; dönüşüm scripti bunu otomatik
+> algılar, yoksa eski `qnn-onnx-converter`'a düşer.
+
+SDK'nın kendi Python bağımlılıkları varsa:
 
 ```bash
-source "$QNN_SDK_ROOT/bin/envsetup.sh"   # PATH/PYTHONPATH ayarlar
+source "$QNN_SDK_ROOT/bin/envsetup.sh" 2>/dev/null || true   # PATH/PYTHONPATH
+"$QNN_SDK_ROOT/bin/check-python-dependency" 2>/dev/null || true
 ```
 
 ## 5. MNN + MNNConvert

@@ -1,8 +1,8 @@
-# SD 1.5 → Qualcomm QNN (qnn2.28_min) Dönüştürme
+# SD 1.5 → Qualcomm QNN (qnn2.39_min) Dönüştürme
 
 civitai / Hugging Face üzerindeki **SD 1.5 `.safetensors`** modellerini,
 telefonunuzdaki **Ruya / Local Dream** uygulamasının NPU'da çalıştırdığı
-**`<isim>_qnn2.28_min.zip`** formatına dönüştürmek için uçtan uca bir toolkit.
+**`<isim>_qnn2.39_min.zip`** formatına dönüştürmek için uçtan uca bir toolkit.
 
 > **Neden `_min`?** Birçok geliştirici artık sadece Snapdragon 8 Gen 2/3 için
 > dönüştürüyor. `_min` varyantı en düşük Hexagon mimarisini (V68+) hedefler ve
@@ -38,7 +38,7 @@ modellerin telefonunuzda açılmama sebebi budur.
 Local Dream SD1.5 modelini **iki motora** böler:
 
 ```
-AbsoluteReality_qnn2.28_min.zip
+AbsoluteReality_qnn2.39_min.zip
 └── AbsoluteReality/
     ├── unet_512x512.bin      ← QNN context binary   → NPU (Hexagon)   [QNN'e çevrilir]
     ├── unet_512x768.bin
@@ -62,13 +62,13 @@ AbsoluteReality_qnn2.28_min.zip
 |---|---|
 | **İşletim sistemi** | Linux veya Windows'ta **WSL2** (konvertörler yalnızca x86-64 Linux) |
 | **RAM** | 512px için **20 GB+**, yüksek çözünürlük için **64 GB+** (+ swap) |
-| **Qualcomm AI Engine Direct SDK** | **2.28** (`v2.28.0.241029`) — Qualcomm AI Hub / QPM'den indirin |
-| **MNN (MNNConvert)** | `-DMNN_BUILD_CONVERTER=ON` ile derlenmiş |
+| **QAIRT / QNN SDK** | **2.39** — `matrixportalx/qairt-sdk` release'inden **otomatik** (`scripts/setup_qnn_sdk.py`) |
+| **MNN** | `pip install MNN` (`mnnconvert` komutu) |
 | **Python paketleri** | `pip install -r requirements.txt` |
 | **Süre** | Her çözünürlük × her tier **saatler** sürebilir (CPU kuantizasyonu normaldir) |
 
-> `qnn2.28` ismindeki **2.28**, kullanmanız gereken SDK sürümüdür. Farklı bir
-> sürüm kullanırsanız binary çalışmayabilir — **tam olarak 2.28** kullanın.
+> Çıktı varsayılan olarak `_qnn2.39_min` etiketlenir (Ruya derlemesiyle aynı SDK
+> sürümü). `QNN_VERSION=2.28 ./convert_all.sh ...` ile etiketi değiştirebilirsiniz.
 
 Kurulum ayrıntıları için: [`docs/02-gereksinimler.md`](docs/02-gereksinimler.md)
 
@@ -79,14 +79,18 @@ Kurulum ayrıntıları için: [`docs/02-gereksinimler.md`](docs/02-gereksinimler
 ```bash
 # 0) Bir defaya mahsus kurulum
 pip install -r requirements.txt
-export QNN_SDK_ROOT=/opt/qairt/2.28.0.241029      # SDK'yı açtığınız yol
-export MNNCONVERT=/opt/MNN/build/MNNConvert        # derlenmiş MNNConvert
+pip install MNN                                    # mnnconvert
+export MNNCONVERT=mnnconvert
+
+# SDK'yı release'ten otomatik indir (public → token gerekmez)
+python scripts/setup_qnn_sdk.py --dest ./qairt
+export QNN_SDK_ROOT="$(python scripts/setup_qnn_sdk.py --dest ./qairt | sed -n 's/^QNN_SDK_ROOT=//p' | tail -1)"
 
 # 1) Uçtan uca dönüştür (Snapdragon 7 için tier = min)
 ./convert_all.sh /indirilenler/AbsoluteReality.safetensors AbsoluteReality min
 
 # Çıktı:
-#   dist/AbsoluteReality_qnn2.28_min.zip
+#   dist/AbsoluteReality_qnn2.39_min.zip
 ```
 
 Bu ZIP'i telefona kopyalayıp **Ruya / Local Dream → Settings → Import Custom
@@ -100,11 +104,11 @@ Kendi Linux'unuz yoksa **link gir → dönüştür → HF reponuza yükle** akı
 hazır bir **Colab notebook** ile yapabilirsiniz:
 
 - **Colab (önerilen):** [`notebooks/SD15_to_QNN_Colab.ipynb`](notebooks/SD15_to_QNN_Colab.ipynb)
-  — safetensors linki + HF token girin, gerisini yapar. (High-RAM runtime + QNN SDK'yı
-  bir kez Drive'a yüklemeniz gerekir.)
+  — safetensors linki + HF token girin, gerisini yapar. SDK release'ten otomatik
+  iner (Drive/manuel indirme yok); tek gereken High-RAM runtime.
 - **GitHub Actions:** [`.github/workflows/convert.yml`](.github/workflows/convert.yml)
-  — **yalnızca self-hosted runner'da** çalışır (ücretsiz runner'lar RAM ve SDK
-  lisansı nedeniyle yetersiz).
+  — **yalnızca self-hosted runner'da** çalışır (ücretsiz runner'lar 20 GB+ RAM
+  gereksinimi nedeniyle yetersiz).
 
 Ayrıntı ve kısıtlar: [`docs/06-otomasyon.md`](docs/06-otomasyon.md)
 
@@ -119,7 +123,7 @@ Ayrıntı ve kısıtlar: [`docs/06-otomasyon.md`](docs/06-otomasyon.md)
 | 2 | `scripts/02_gen_quant_data.py` | UNet kuantizasyonu için kalibrasyon verisi |
 | 3 | `scripts/03_convert_unet_qnn.sh` | UNet ONNX → **QNN context binary** (`unet_*.bin`) |
 | 4 | `scripts/04_convert_mnn.sh` | text_encoder + vae ONNX → **MNN** (`*.mnn`) |
-| 5 | `scripts/05_package.py` | Hepsini topla → `*_qnn2.28_min.zip` |
+| 5 | `scripts/05_package.py` | Hepsini topla → `*_qnn2.39_min.zip` |
 
 SoC/tier tablosunu görmek için: `python scripts/soc_targets.py`
 Ayrıntı: [`docs/04-soc-htp-tablosu.md`](docs/04-soc-htp-tablosu.md)
@@ -128,8 +132,8 @@ Ayrıntı: [`docs/04-soc-htp-tablosu.md`](docs/04-soc-htp-tablosu.md)
 
 ## Önemli notlar ve dürüstlük payı
 
-- Bu toolkit, **Local Dream'in belgelenmiş dönüştürme mantığını** ve QNN 2.28
-  araç zincirini yeniden üretir. ONNX export ve paketleme adımları burada tam
+- Bu toolkit, **Local Dream'in belgelenmiş dönüştürme mantığını** ve QAIRT 2.39
+  (gerekirse eski QNN 2.28) araç zincirini yeniden üretir. ONNX export ve paketleme adımları burada tam
   olarak çalışır; **QNN/MNN adımları** ise sizin kurduğunuz SDK'lara bağlıdır.
 - QNN kuantizasyon bayrakları (`ACT_BW`/`WEIGHT_BW`) ve HTP config şeması, SDK
   sürümüne göre küçük farklılıklar gösterebilir. Bir şey oynamazsa, **çalışan bir
