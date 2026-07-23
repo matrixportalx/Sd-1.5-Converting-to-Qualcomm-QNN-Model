@@ -37,8 +37,31 @@ def onnx_export(*args, **kwargs):
         return torch.onnx.export(*args, **kwargs)
 
 
-def export_text_encoder(pipe, out_dir, opset):
-    te = pipe.text_encoder.eval()
+def simplify_onnx(path):
+    """ONNX'i sadelestir (sabit katlama). MNN'in desteklemedigi, sabit yoldaki
+    op'lari (or. IsNaN) eler. onnxslim yoksa sessizce atlanir."""
+    try:
+        import onnx
+        from onnxslim import slim
+        model = slim(onnx.load(path))
+        onnx.save(model, path)
+        print(f"    [onnxslim] sadelestirildi")
+    except Exception as e:
+        print(f"    [onnxslim] atlandi ({type(e).__name__}: {e})")
+
+
+def export_text_encoder(pipe, out_dir, opset, pipeline_dir):
+    # SDPA dikkat yolu ONNX'e IsNaN gibi MNN'in desteklemedigi op'lar ekleyebilir;
+    # eager dikkat ile yeniden yukleyerek bunu onleriz (sonuc sayisal olarak ayni).
+    try:
+        from transformers import CLIPTextModel
+        te = CLIPTextModel.from_pretrained(
+            os.path.join(pipeline_dir, "text_encoder"),
+            attn_implementation="eager").eval()
+    except Exception as e:
+        print(f"    [uyari] eager text_encoder yuklenemedi ({e}); mevcut kullaniliyor")
+        te = pipe.text_encoder.eval()
+
     path = os.path.join(out_dir, "text_encoder.onnx")
     dummy = torch.randint(0, 1000, (1, TEXT_SEQ_LEN), dtype=torch.int32)
     print(f"[*] text_encoder -> {path}")
@@ -49,6 +72,7 @@ def export_text_encoder(pipe, out_dir, opset):
         opset_version=opset,
         do_constant_folding=True,
     )
+    simplify_onnx(path)
 
 
 def export_vae_decoder(pipe, out_dir, opset, res0):
@@ -74,6 +98,7 @@ def export_vae_decoder(pipe, out_dir, opset, res0):
         opset_version=opset,
         do_constant_folding=True,
     )
+    simplify_onnx(path)
 
 
 def export_unet(pipe, out_dir, opset, res):
@@ -127,7 +152,7 @@ def main() -> None:
 
     with torch.no_grad():
         if not args.unet_only:
-            export_text_encoder(pipe, args.output, args.opset)
+            export_text_encoder(pipe, args.output, args.opset, args.pipeline)
             export_vae_decoder(pipe, args.output, args.opset, resolutions[0])
         for res in resolutions:
             export_unet(pipe, args.output, args.opset, res)
