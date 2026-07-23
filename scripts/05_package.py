@@ -106,11 +106,13 @@ def main() -> None:
     zip_path = os.path.join(args.output, zip_name)
     if os.path.exists(zip_path):
         os.remove(zip_path)
+    # Dosyalar zip KOKUNDE olmali (fazladan <isim>/ sarmalayici klasoru YOK).
+    # arcname'i stage'e gore al -> stage icindekiler dogrudan kokte.
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _, files in os.walk(stage):
             for fn in files:
                 full = os.path.join(root, fn)
-                arc = os.path.relpath(full, args.output)
+                arc = os.path.relpath(full, stage)
                 zf.write(full, arc)
 
     print(f"[+] Paket hazir -> {zip_path}")
