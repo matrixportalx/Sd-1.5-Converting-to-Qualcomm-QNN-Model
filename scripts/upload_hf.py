@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-Üretilen ZIP'i Hugging Face'e yükler.
+Üretilen ZIP'i Hugging Face'e yükler. Üç kullanım:
 
-İki mod:
-  * --repo kullanici/repo   : bu repoya yükler.
-  * --name ModelAdi         : repo adini model isminden turetir ->
-                              <senin_kullanici_adin>/ModelAdi (yoksa olusturur).
+  MOD A — her model AYRI repo (dosyalar kökte):
+    python upload_hf.py --name CyberRealisticLCM --file dist/..._min.zip
+    -> <kullanici>/CyberRealisticLCM
+
+  MOD B — hepsi TEK koleksiyon reposunda (her model alt klasörde):
+    python upload_hf.py --collection sd_qnn --name CyberRealisticLCM --file ...
+    -> <kullanici>/sd_qnn/CyberRealisticLCM/...
+
+  Dogrudan tam repo adi:
+    python upload_hf.py --repo kullanici/istedigin-repo --file ...
 
 Gerekli: yazma (write) izinli HF token -> export HF_TOKEN=hf_xxxx
-
-Kullanim:
-    python upload_hf.py --name CyberRealisticLCM \
-        --file dist/CyberRealisticLCM_qnn2.39_min.zip
+(--name verilmezse model adi zip dosya isminden turetilir.)
 """
 import argparse
 import os
@@ -69,14 +72,27 @@ def _read_model_info(zip_path):
     return {}
 
 
+def _model_name_from_zip(zip_path: str) -> str:
+    b = os.path.basename(zip_path)
+    if "_qnn" in b:
+        return b.split("_qnn")[0]
+    return os.path.splitext(b)[0]
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", default=None,
-                    help="Hedef repo: kullanici/repo-adi")
-    ap.add_argument("--name", default=None,
-                    help="Repo adini model isminden turet: <kullanici>/<name>")
+    ap = argparse.ArgumentParser(description="ZIP'i Hugging Face'e yukler")
     ap.add_argument("--file", required=True, help="Yüklenecek dosya (zip)")
-    ap.add_argument("--path-in-repo", default=None)
+    # --- Yukleme modu (birini secin) ---
+    ap.add_argument("--repo", default=None,
+                    help="MOD A/B: Tam repo adi 'kullanici/repo' (dogrudan bu repoya)")
+    ap.add_argument("--name", default=None,
+                    help="MOD A (ayri repo): repo = <kullanici>/<name>, dosyalar kokte")
+    ap.add_argument("--collection", default=None,
+                    help="MOD B (koleksiyon): tek repo (or. 'sd_qnn'); her model "
+                         "kendi alt klasorunde. '/' yoksa <kullanici>/<collection>")
+    # ---
+    ap.add_argument("--subdir", default=None,
+                    help="Repo icindeki alt klasor (koleksiyonda otomatik = model adi)")
     ap.add_argument("--private", action="store_true")
     ap.add_argument("--no-card", action="store_true",
                     help="Model karti (README.md) olusturma/yukleme")
@@ -92,23 +108,41 @@ def main() -> None:
     from huggingface_hub import HfApi
     api = HfApi(token=args.token)
 
-    # Repo adini belirle
-    repo = args.repo
-    if not repo:
-        if not args.name:
-            sys.exit("HATA: --repo veya --name verilmeli.")
+    model_name = args.name or _model_name_from_zip(args.file)
+
+    def _user():
         who = api.whoami()
-        user = who.get("name") or who.get("email", "").split("@")[0]
-        if not user:
+        u = who.get("name") or who.get("email", "").split("@")[0]
+        if not u:
             sys.exit("HATA: HF kullanici adi alinamadi (token gecerli mi?).")
-        repo = f"{user}/{args.name}"
-        print(f"[*] Repo adi model isminden turetildi: {repo}")
+        return u
+
+    # --- Repo ve alt klasoru belirle ---
+    subdir = (args.subdir or "").strip("/")
+    if args.repo:
+        repo = args.repo                      # dogrudan verilen repo
+    elif args.collection:
+        # MOD B: koleksiyon reposu; her model alt klasorde
+        coll = args.collection
+        repo = coll if "/" in coll else f"{_user()}/{coll}"
+        if not subdir:
+            subdir = model_name
+        print(f"[*] Koleksiyon modu: {repo}  (alt klasor: {subdir})")
+    elif args.name:
+        # MOD A: model adindan ayri repo
+        repo = f"{_user()}/{args.name}"
+        print(f"[*] Ayri repo modu: {repo}")
+    else:
+        sys.exit("HATA: --repo, --name veya --collection verilmeli.")
+
+    prefix = f"{subdir}/" if subdir else ""
 
     print(f"[*] Repo hazırlanıyor: {repo}  (private={args.private})")
     api.create_repo(repo_id=repo, repo_type="model",
                     private=args.private, exist_ok=True)
 
-    # Model karti (README.md)
+    # Model karti: kokte (ayri repo) veya alt klasorde (koleksiyon) —
+    # koleksiyonda ana README'yi ezmeyiz.
     if not args.no_card:
         info = _read_model_info(args.file)
         try:
@@ -118,7 +152,7 @@ def main() -> None:
         tier = info.get("tier", "min")
         tinfo = TIERS.get(tier, {})
         card = MODEL_CARD.format(
-            name=args.name or repo.split("/")[-1],
+            name=model_name,
             runtime=info.get("runtime", "qnn2.39"),
             tier=tier,
             dsp_arch=info.get("dsp_arch", tinfo.get("dsp_arch", "v69")),
@@ -129,13 +163,13 @@ def main() -> None:
         )
         api.upload_file(
             path_or_fileobj=card.encode("utf-8"),
-            path_in_repo="README.md",
+            path_in_repo=f"{prefix}README.md",
             repo_id=repo, repo_type="model",
-            commit_message="Add model card",
+            commit_message=f"Add model card ({model_name})",
         )
-        print("[*] Model karti (README.md) yuklendi")
+        print(f"[*] Model karti yuklendi -> {prefix}README.md")
 
-    path_in_repo = args.path_in_repo or os.path.basename(args.file)
+    path_in_repo = f"{prefix}{os.path.basename(args.file)}"
     print(f"[*] Yükleniyor: {args.file} -> {repo}/{path_in_repo} "
           f"({os.path.getsize(args.file)>>20} MB)")
     api.upload_file(
@@ -143,10 +177,9 @@ def main() -> None:
         path_in_repo=path_in_repo,
         repo_id=repo,
         repo_type="model",
-        commit_message="Add QNN converted SD1.5 model",
+        commit_message=f"Add {model_name} (QNN SD1.5)",
     )
-    url = f"https://huggingface.co/{repo}/blob/main/{path_in_repo}"
-    print(f"[+] Yüklendi: {url}")
+    print(f"[+] Yüklendi: https://huggingface.co/{repo}/blob/main/{path_in_repo}")
     print(f"[+] Repo: https://huggingface.co/{repo}")
 
 
