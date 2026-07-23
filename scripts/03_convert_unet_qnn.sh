@@ -64,6 +64,31 @@ echo "==> QAIRT python: $QNN_PY"
 WORK="$OUT/build/unet_${TAG}"
 mkdir -p "$WORK" "$OUT"
 
+# input_list'teki yollari MUTLAK yap (CWD'den bagimsiz). qairt-quantizer
+# input_list'i scripts/ klasorunden okuyor; goreli yollar bulunamiyordu.
+# Ham .raw dosyalari input_list.txt ile ayni klasordedir.
+ABS_LIST="$WORK/input_list_abs.txt"
+LIST_DIR="$(cd "$(dirname "$INPUT_LIST")" && pwd)"
+python3 - "$INPUT_LIST" "$ABS_LIST" "$LIST_DIR" <<'PY'
+import os, sys
+src, dst, d = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = []
+for line in open(src):
+    if not line.strip():
+        continue
+    toks = []
+    for t in line.split():
+        if ":=" in t:
+            n, p = t.split(":=", 1)
+            toks.append(f"{n}:={os.path.join(d, os.path.basename(p))}")
+        else:
+            toks.append(os.path.join(d, os.path.basename(t)))
+    lines.append(" ".join(toks))
+open(dst, "w").write("\n".join(lines) + "\n")
+print(f"[*] Mutlak input_list -> {dst}")
+PY
+INPUT_LIST="$ABS_LIST"
+
 echo "==> HTP config uretiliyor (tier=$TIER)"
 HTP_CFG="$WORK/htp_${TIER}.json"
 python3 "$SCRIPT_DIR/gen_htp_config.py" --tier "$TIER" --output "$HTP_CFG"
@@ -100,10 +125,14 @@ run_tool() {
 if command -v qairt-converter >/dev/null 2>&1; then
   echo "==> QAIRT arac zinciri (qairt-converter + qairt-quantizer)"
 
-  echo "  [1/3] qairt-converter: ONNX -> float DLC"
-  run_tool py qairt-converter \
-    --input_network "$ONNX" \
-    --output_path "$WORK/unet_fp.dlc"
+  if [ -f "$WORK/unet_fp.dlc" ] && [ "${FORCE:-0}" != "1" ]; then
+    echo "  [1/3] qairt-converter [ATLANDI - unet_fp.dlc zaten var]"
+  else
+    echo "  [1/3] qairt-converter: ONNX -> float DLC"
+    run_tool py qairt-converter \
+      --input_network "$ONNX" \
+      --output_path "$WORK/unet_fp.dlc"
+  fi
 
   echo "  [2/3] qairt-quantizer: kalibrasyon (a${ACT_BW}w${WEIGHT_BW})"
   run_tool py qairt-quantizer \

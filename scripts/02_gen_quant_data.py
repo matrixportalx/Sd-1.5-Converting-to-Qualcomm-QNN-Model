@@ -111,10 +111,21 @@ def gen_real(pipeline_dir, res: Resolution, n: int, steps: int, out: str):
     print(f"[+] {idx} kalibrasyon ornegi uretildi.")
 
 
+def _abs_token(tok: str) -> str:
+    """'name:=path' veya 'path' icindeki yolu mutlak yapar. qairt-quantizer
+    input_list'i farkli bir CWD'den okudugu icin goreli yollar bulunamaz."""
+    if ":=" in tok:
+        name, p = tok.split(":=", 1)
+        return f"{name}:={os.path.abspath(p)}"
+    return os.path.abspath(tok) if tok else tok
+
+
 def _write_list(out: str, lines) -> None:
+    abs_lines = [" ".join(_abs_token(t) for t in line.split(" ") if t)
+                 for line in lines]
     with open(os.path.join(out, "input_list.txt"), "w") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"[+] input_list.txt yazildi ({len(lines)} satir) -> {out}")
+        f.write("\n".join(abs_lines) + "\n")
+    print(f"[+] input_list.txt yazildi ({len(abs_lines)} satir, mutlak yol) -> {out}")
 
 
 def main() -> None:
