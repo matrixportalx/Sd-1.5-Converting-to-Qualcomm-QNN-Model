@@ -23,10 +23,9 @@ def build_ext_config(tier_name: str) -> dict:
     Bu dosya ANA config'ten degil, backend_extensions.config_file_path ile
     referans edilir. graphs/devices anahtarlari BURADA gecerlidir."""
     t = get_tier(tier_name)
+    # NOT: 'graphs' bloğu 'graph_names' ister (grafik adi bilinmiyor). Sadece
+    # 'devices/dsp_arch' yeterli — bu, binary'nin hedef HTP mimarisini belirler.
     return {
-        "graphs": [
-            {"vtcm_mb": 8, "O": 3}
-        ],
         "devices": [
             # dsp_arch belirleyici: v68 = en genis uyumluluk (Snapdragon 7 dahil)
             {"dsp_arch": t["dsp_arch"]}

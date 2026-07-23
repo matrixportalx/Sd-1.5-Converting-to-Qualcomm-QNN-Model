@@ -134,14 +134,18 @@ if command -v qairt-converter >/dev/null 2>&1; then
       --output_path "$WORK/unet_fp.dlc"
   fi
 
-  echo "  [2/3] qairt-quantizer: kalibrasyon (a${ACT_BW}w${WEIGHT_BW})"
-  run_tool py qairt-quantizer \
-    --input_dlc "$WORK/unet_fp.dlc" \
-    --input_list "$INPUT_LIST" \
-    --act_bitwidth "$ACT_BW" \
-    --weights_bitwidth "$WEIGHT_BW" \
-    --bias_bitwidth "$BIAS_BW" \
-    --output_dlc "$WORK/unet_quant.dlc"
+  if [ -f "$WORK/unet_quant.dlc" ] && [ "${FORCE:-0}" != "1" ]; then
+    echo "  [2/3] qairt-quantizer [ATLANDI - unet_quant.dlc zaten var]"
+  else
+    echo "  [2/3] qairt-quantizer: kalibrasyon (a${ACT_BW}w${WEIGHT_BW})"
+    run_tool py qairt-quantizer \
+      --input_dlc "$WORK/unet_fp.dlc" \
+      --input_list "$INPUT_LIST" \
+      --act_bitwidth "$ACT_BW" \
+      --weights_bitwidth "$WEIGHT_BW" \
+      --bias_bitwidth "$BIAS_BW" \
+      --output_dlc "$WORK/unet_quant.dlc"
+  fi
 
   echo "  [3/3] qnn-context-binary-generator: DLC -> HTP binary"
   run_tool native qnn-context-binary-generator \
