@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """
-Adim 1 — diffusers pipeline -> ONNX (sabit / static sekilli).
+Adim 1 — diffusers pipeline -> Local Dream (Ruya) formatinda ara ciktilar.
 
-Uc bileseni ayri ayri ONNX'e verir:
-  * text_encoder.onnx  (CLIP)      -> sonra MNN'e cevrilir (CPU/GPU)
-  * vae_decoder.onnx   (VAE decode)-> sonra MNN'e cevrilir (CPU/GPU)
-  * unet_<WxH>.onnx     (UNet)     -> sonra QNN context binary'ye (NPU)
+Local Dream'in SD1.5-NPU yukleyicisi (app kaynak kodu) su yapiyi bekler:
+  * token_emb.bin   : CLIP token gomme tablosu, HAM fp16 [vocab, 768]
+  * pos_emb.bin     : CLIP pozisyon gomme, HAM fp32 [77, 768]
+  * clip_v2.mnn     : CLIP transformer; giris 'input_embedding' [1,77,768],
+                      cikis 'last_hidden_state' (gomme uygulama tarafinda yapilir)
+  * unet.bin        : QNN (int8 kuantize) — graf adi 'unet'
+  * vae_decoder.bin : QNN (fp16) — graf adi 'vae_decoder'
+  * vae_encoder.bin : QNN (fp16, opsiyonel) — graf adi 'vae_encoder'
+  * tokenizer.json  : HF tokenizer
 
-NEDEN sabit sekil? NPU (HTP) dinamik sekil sevmez; her cozunurluk icin ayri
-bir UNet grafi export edilir. Local Dream varsayilan olarak 512x512, 512x768
-ve 768x512 paketler.
+Bu script ONNX/ham ciktilari uretir:
+  token_emb.bin, pos_emb.bin, clip_v2.onnx, unet_<WxH>.onnx,
+  vae_decoder.onnx, vae_encoder.onnx
+Sonraki adimlar bunlari MNN/QNN'e cevirir.
 
 Kullanim:
     python 01_export_onnx.py --pipeline work/pipeline --output work/onnx \
-        --resolutions 512x512,512x768,768x512 --opset 17
+        --resolutions 512x512 --opset 17
 """
 import argparse
 import os
 
+import numpy as np
 import torch
 
 from common import (LATENT_CHANNELS, TEXT_SEQ_LEN, parse_resolutions,
@@ -25,12 +32,6 @@ from common import (LATENT_CHANNELS, TEXT_SEQ_LEN, parse_resolutions,
 
 
 def onnx_export(*args, **kwargs):
-    """torch.onnx.export sarmalayici.
-
-    Yeni torch surumlerinde varsayilan 'dynamo' exporter onnxscript ister ve
-    bazen bu wrapper modelleri farkli ele alir. Kararli TorchScript yolunu
-    (dynamo=False) tercih ederiz; desteklemeyen eski surumlerde geri duseriz.
-    """
     try:
         return torch.onnx.export(*args, dynamo=False, **kwargs)
     except TypeError:
@@ -38,43 +39,73 @@ def onnx_export(*args, **kwargs):
 
 
 def simplify_onnx(path):
-    """ONNX'i sadelestir (sabit katlama). MNN'in desteklemedigi, sabit yoldaki
-    op'lari (or. IsNaN) eler. onnxslim yoksa sessizce atlanir."""
     try:
         import onnx
         from onnxslim import slim
-        model = slim(onnx.load(path))
-        onnx.save(model, path)
-        print(f"    [onnxslim] sadelestirildi")
+        onnx.save(slim(onnx.load(path)), path)
+        print("    [onnxslim] sadelestirildi")
     except Exception as e:
-        print(f"    [onnxslim] atlandi ({type(e).__name__}: {e})")
+        print(f"    [onnxslim] atlandi ({type(e).__name__})")
 
 
-def export_text_encoder(pipe, out_dir, opset, pipeline_dir):
-    # SDPA dikkat yolu ONNX'e IsNaN gibi MNN'in desteklemedigi op'lar ekleyebilir;
-    # eager dikkat ile yeniden yukleyerek bunu onleriz (sonuc sayisal olarak ayni).
-    try:
-        from transformers import CLIPTextModel
-        te = CLIPTextModel.from_pretrained(
-            os.path.join(pipeline_dir, "text_encoder"),
-            attn_implementation="eager").eval()
-    except Exception as e:
-        print(f"    [uyari] eager text_encoder yuklenemedi ({e}); mevcut kullaniliyor")
-        te = pipe.text_encoder.eval()
+# --------------------------------------------------------------------------
+# CLIP: gomme tablolarini ayir + transformer'i input_embedding alacak sekilde
+# --------------------------------------------------------------------------
+def export_clip_split(pipe, out_dir, opset):
+    tm = pipe.text_encoder.text_model
+    emb = tm.embeddings
+    hidden = pipe.text_encoder.config.hidden_size
 
-    path = os.path.join(out_dir, "text_encoder.onnx")
-    dummy = torch.randint(0, 1000, (1, TEXT_SEQ_LEN), dtype=torch.int32)
-    print(f"[*] text_encoder -> {path}")
+    # 1) token_emb.bin — HAM fp16 [vocab, hidden]
+    tok_w = emb.token_embedding.weight.detach().cpu().numpy().astype(np.float16)
+    tok_path = os.path.join(out_dir, "token_emb.bin")
+    tok_w.tofile(tok_path)
+    print(f"[*] token_emb.bin  {tok_w.shape} fp16 -> {tok_path} "
+          f"({os.path.getsize(tok_path)>>20} MB)")
+
+    # 2) pos_emb.bin — HAM fp32 [77, hidden]
+    pos_w = emb.position_embedding.weight.detach().cpu().numpy().astype(np.float32)
+    pos_path = os.path.join(out_dir, "pos_emb.bin")
+    pos_w.tofile(pos_path)
+    print(f"[*] pos_emb.bin    {pos_w.shape} fp32 -> {pos_path} "
+          f"({os.path.getsize(pos_path)} B)")
+
+    # 3) clip_v2.onnx — transformer; giris input_embedding, cikis last_hidden_state
+    class ClipV2(torch.nn.Module):
+        def __init__(self, text_model):
+            super().__init__()
+            self.text_model = text_model
+
+        def forward(self, input_embedding):
+            # embeddings.forward'i gecici olarak dis gomme dondurecek sekilde
+            # degistir; boylece transformers icteki maskeleme/versiyon farklarini
+            # kendi halleder (surumden bagimsiz).
+            emb_mod = self.text_model.embeddings
+            orig = emb_mod.forward
+            emb_mod.forward = lambda *a, **k: input_embedding
+            try:
+                ids = torch.zeros(input_embedding.shape[:2], dtype=torch.long)
+                out = self.text_model(input_ids=ids)
+            finally:
+                emb_mod.forward = orig
+            return out.last_hidden_state
+
+    path = os.path.join(out_dir, "clip_v2.onnx")
+    dummy = torch.randn(1, TEXT_SEQ_LEN, hidden)
+    print(f"[*] clip_v2 -> {path}")
     onnx_export(
-        te, (dummy,), path,
-        input_names=["input_ids"],
-        output_names=["last_hidden_state", "pooler_output"],
+        ClipV2(tm).eval(), (dummy,), path,
+        input_names=["input_embedding"],
+        output_names=["last_hidden_state"],
         opset_version=opset,
         do_constant_folding=True,
     )
     simplify_onnx(path)
 
 
+# --------------------------------------------------------------------------
+# VAE decoder / encoder
+# --------------------------------------------------------------------------
 def export_vae_decoder(pipe, out_dir, opset, res0):
     vae = pipe.vae.eval()
 
@@ -84,7 +115,6 @@ def export_vae_decoder(pipe, out_dir, opset, res0):
             self.vae = vae
 
         def forward(self, latent):
-            # diffusers latent olcegi: 1/0.18215
             latent = latent / self.vae.config.scaling_factor
             return self.vae.decode(latent).sample
 
@@ -93,14 +123,37 @@ def export_vae_decoder(pipe, out_dir, opset, res0):
     print(f"[*] vae_decoder -> {path}")
     onnx_export(
         Decoder(vae), (dummy,), path,
-        input_names=["latent"],
-        output_names=["image"],
-        opset_version=opset,
-        do_constant_folding=True,
-    )
+        input_names=["latent"], output_names=["image"],
+        opset_version=opset, do_constant_folding=True)
     simplify_onnx(path)
 
 
+def export_vae_encoder(pipe, out_dir, opset, res0):
+    vae = pipe.vae.eval()
+
+    class Encoder(torch.nn.Module):
+        def __init__(self, vae):
+            super().__init__()
+            self.vae = vae
+
+        def forward(self, image):
+            # moments [1, 8, H/8, W/8] (mean+logvar); ornekleme/olcek uygulamada
+            h = self.vae.encoder(image)
+            return self.vae.quant_conv(h)
+
+    path = os.path.join(out_dir, "vae_encoder.onnx")
+    dummy = torch.randn(1, 3, res0.height, res0.width)
+    print(f"[*] vae_encoder -> {path}")
+    onnx_export(
+        Encoder(vae), (dummy,), path,
+        input_names=["image"], output_names=["moments"],
+        opset_version=opset, do_constant_folding=True)
+    simplify_onnx(path)
+
+
+# --------------------------------------------------------------------------
+# UNet
+# --------------------------------------------------------------------------
 def export_unet(pipe, out_dir, opset, res):
     unet = pipe.unet.eval()
     hidden = pipe.text_encoder.config.hidden_size
@@ -116,34 +169,27 @@ def export_unet(pipe, out_dir, opset, res):
 
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)
-    # timestep RANK-1 ([1]) olmali; skaler (rank-0) HTP'de desteklenmiyor
-    # ('/unet/Unsqueeze incorrect Rank 0'). Kalibrasyon verisi de [1] sekilli.
-    timestep = torch.tensor([1], dtype=torch.float32)
+    timestep = torch.tensor([1], dtype=torch.float32)   # rank-1 (HTP)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
     onnx_export(
         UNetWrap(unet), (sample, timestep, ehs), path,
         input_names=["sample", "timestep", "encoder_hidden_states"],
         output_names=["noise_pred"],
-        opset_version=opset,
-        do_constant_folding=True,
-    )
+        opset_version=opset, do_constant_folding=True)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pipeline", required=True, help="diffusers klasoru (adim 0)")
+    ap.add_argument("--pipeline", required=True)
     ap.add_argument("--output", default="work/onnx")
-    ap.add_argument("--resolutions", default="",
-                    help="or. 512x512,512x768,768x512 (bos = varsayilan uclu)")
+    ap.add_argument("--resolutions", default="")
     ap.add_argument("--opset", type=int, default=17)
-    ap.add_argument("--unet-only", action="store_true",
-                    help="Sadece UNet export et (text_encoder/vae zaten hazirsa)")
+    ap.add_argument("--unet-only", action="store_true")
     args = ap.parse_args()
 
     from diffusers import StableDiffusionPipeline
     os.makedirs(args.output, exist_ok=True)
-
     resolutions = (parse_resolutions(args.resolutions)
                    if args.resolutions else DEFAULT_RESOLUTIONS)
 
@@ -154,12 +200,25 @@ def main() -> None:
 
     with torch.no_grad():
         if not args.unet_only:
-            export_text_encoder(pipe, args.output, args.opset, args.pipeline)
+            export_clip_split(pipe, args.output, args.opset)
             export_vae_decoder(pipe, args.output, args.opset, resolutions[0])
+            export_vae_encoder(pipe, args.output, args.opset, resolutions[0])
         for res in resolutions:
             export_unet(pipe, args.output, args.opset, res)
 
-    print("[+] ONNX export tamam ->", args.output)
+    # tokenizer.json (HF hizli tokenizer; tum SD1.5 icin ayni CLIP tokenizer)
+    if not args.unet_only:
+        try:
+            from transformers import CLIPTokenizerFast
+            tk = CLIPTokenizerFast.from_pretrained(
+                os.path.join(args.pipeline, "tokenizer"))
+            tk.save_pretrained(args.output)   # tokenizer.json yazar
+            if os.path.exists(os.path.join(args.output, "tokenizer.json")):
+                print("[*] tokenizer.json yazildi")
+        except Exception as e:
+            print("[!] tokenizer.json uretilemedi:", e)
+
+    print("[+] ONNX/emb export tamam ->", args.output)
 
 
 if __name__ == "__main__":

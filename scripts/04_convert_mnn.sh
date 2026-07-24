@@ -1,42 +1,25 @@
 #!/usr/bin/env bash
 #
-# Adim 4 — text_encoder + vae_decoder ONNX -> MNN (.mnn) [CPU/GPU parcasi]
+# Adim 4 — clip_v2.onnx -> clip_v2.mnn  (CLIP transformer, CPU/GPU icin MNN)
 #
-# Local Dream'de metin kodlayici (CLIP) ve VAE, NPU'da DEGIL, MNN motorunda
-# (CPU/GPU) calisir. Bu yuzden bunlari QNN'e degil MNN'e ceviririz.
+# Local Dream CLIP transformer'i MNN olarak calistirir (giris 'input_embedding',
+# cikis 'last_hidden_state'). Gomme tablolari (token_emb/pos_emb) ayri .bin'dir.
 #
-# Gereksinim: MNN'in "MNNConvert" araci derlenmis olmali.
-#   git clone https://github.com/alibaba/MNN
-#   cd MNN && mkdir build && cd build
-#   cmake .. -DMNN_BUILD_CONVERTER=ON && make -j
-#   -> build/MNNConvert
+# Gereksinim: MNNConvert (pip install MNN -> mnnconvert)
 #
 # Kullanim:
-#   MNNCONVERT=/yol/MNN/build/MNNConvert \
-#   ./04_convert_mnn.sh work/onnx work/mnn
+#   MNNCONVERT=mnnconvert ./04_convert_mnn.sh work/onnx work/mnn
 #
 set -euo pipefail
-
-ONNX_DIR="${1:?ONNX klasoru gerekli}"
+ONNX_DIR="${1:?ONNX klasoru}"
 OUT="${2:-work/mnn}"
-MNNCONVERT="${MNNCONVERT:-MNNConvert}"
-FP16="${FP16:-1}"   # 1 = fp16 kaydet (daha kucuk/dosya, mobilde hizli)
-
+MNNCONVERT="${MNNCONVERT:-mnnconvert}"
+FP16="${FP16:-1}"
 mkdir -p "$OUT"
+fp16_flag=""; [ "$FP16" = "1" ] && fp16_flag="--fp16"
 
-fp16_flag=""
-if [[ "$FP16" == "1" ]]; then fp16_flag="--fp16"; fi
+echo "==> clip_v2.onnx -> clip_v2.mnn"
+"$MNNCONVERT" -f ONNX --modelFile "$ONNX_DIR/clip_v2.onnx" \
+  --MNNModel "$OUT/clip_v2.mnn" --bizCode localdream $fp16_flag
 
-convert() {
-  local in="$1" out="$2"
-  echo "==> $in -> $out"
-  "$MNNCONVERT" -f ONNX \
-    --modelFile "$in" \
-    --MNNModel "$out" \
-    --bizCode localdream $fp16_flag
-}
-
-convert "$ONNX_DIR/text_encoder.onnx" "$OUT/text_encoder.mnn"
-convert "$ONNX_DIR/vae_decoder.onnx"  "$OUT/vae.mnn"
-
-echo "[+] MNN cikti -> $OUT (text_encoder.mnn, vae.mnn)"
+echo "[+] MNN cikti -> $OUT/clip_v2.mnn"
