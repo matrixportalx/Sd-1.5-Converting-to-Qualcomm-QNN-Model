@@ -40,8 +40,8 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v5: CLIP eager attention (clip_v2 IsNaN duzeltmesi).
-EXPORT_VERSION="5"
+# v6: VAE decoder'dan Div (latent/scale) kaldirildi (HTP float Div hatasi).
+EXPORT_VERSION="6"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
@@ -52,8 +52,10 @@ else
   python3 "$SDIR/01_export_onnx.py" --pipeline "$WORK/pipeline" \
       --output "$WORK/onnx" --resolutions "$RES"
   echo "$EXPORT_VERSION" > "$STAMP"
-  echo "  [temizlik] eski qnn/ + mnn/ siliniyor"
-  rm -rf "$WORK/qnn" "$WORK/mnn"
+  # unet.bin'i KORU (yeniden kuantizasyon 8-10 dk sürer); geri kalani temizle.
+  echo "  [temizlik] mnn/ + qnn/build + vae bin'leri siliniyor (unet.bin korunuyor)"
+  rm -rf "$WORK/mnn" "$WORK/qnn/build" \
+         "$WORK/qnn/vae_decoder.bin" "$WORK/qnn/vae_encoder.bin"
 fi
 
 # ---- 2) clip_v2.onnx -> clip_v2.mnn ---------------------------------------

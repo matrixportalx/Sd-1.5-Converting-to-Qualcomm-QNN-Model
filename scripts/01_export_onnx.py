@@ -136,7 +136,8 @@ def export_vae_decoder(pipe, out_dir, opset, res0):
             self.vae = vae
 
         def forward(self, latent):
-            latent = latent / self.vae.config.scaling_factor
+            # NOT: latent/scaling_factor bolmesi YOK — HTP 'Div' op'unu float
+            # grafta olusturamiyor; olcekleme uygulama tarafinda yapilir.
             return self.vae.decode(latent).sample
 
     path = os.path.join(out_dir, "vae_decoder.onnx")
