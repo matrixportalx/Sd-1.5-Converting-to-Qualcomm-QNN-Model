@@ -40,8 +40,8 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v7: VAE 16-bit agirlik (a8w16) — calisan referans ~96MB ile eslestir.
-EXPORT_VERSION="7"
+# v8: VAE a8w8 (v69 Conv yalnizca a8w8 destekler; a8w16 gecersiz).
+EXPORT_VERSION="8"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
@@ -99,8 +99,8 @@ fi
 if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_decoder.bin" ]; then
   echo "### 5b) VAE decoder -> QNN [ATLANDI]"
 else
-  echo "### 5b) VAE decoder -> QNN (a8w${VAE_WEIGHT_BW:-16})"
-  ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-16}" ./03_convert_qnn.sh "../$WORK/onnx/vae_decoder.onnx" \
+  echo "### 5b) VAE decoder -> QNN (a8w8)"
+  ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_decoder.onnx" \
       vae_decoder quant "../$WORK/calib_vae/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_decoder )
 fi
 
@@ -120,8 +120,8 @@ fi
 if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_encoder.bin" ]; then
   echo "### 6b) VAE encoder -> QNN [ATLANDI]"
 else
-  echo "### 6b) VAE encoder -> QNN (a8w${VAE_WEIGHT_BW:-16})"
-  ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-16}" ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
+  echo "### 6b) VAE encoder -> QNN (a8w8)"
+  ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
       vae_encoder quant "../$WORK/calib_venc/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_encoder )
 fi
 
