@@ -40,8 +40,8 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v4: Local Dream formati (bolunmus CLIP + QNN VAE + emb bin).
-EXPORT_VERSION="4"
+# v5: CLIP eager attention (clip_v2 IsNaN duzeltmesi).
+EXPORT_VERSION="5"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \

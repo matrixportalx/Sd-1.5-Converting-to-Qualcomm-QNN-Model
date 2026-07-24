@@ -63,8 +63,18 @@ def _find_clip_embeddings(te):
     raise RuntimeError("CLIPTextEmbeddings bulunamadi")
 
 
-def export_clip_split(pipe, out_dir, opset):
+def export_clip_split(pipe, out_dir, opset, pipeline_dir):
+    # SDPA dikkat yolu ONNX'e IsNaN (MNN desteklemez) ekler; CLIP'i EAGER
+    # dikkat ile yeniden yukle (sonuc sayisal olarak ayni).
     te = pipe.text_encoder.eval()
+    try:
+        from transformers import CLIPTextModel
+        te = CLIPTextModel.from_pretrained(
+            os.path.join(pipeline_dir, "text_encoder"),
+            attn_implementation="eager").eval()
+        print("    [clip] eager attention ile yuklendi (IsNaN onlenir)")
+    except Exception as e:
+        print(f"    [clip] eager yukleme basarisiz ({e}); mevcut kullaniliyor")
     hidden = te.config.hidden_size
     emb = _find_clip_embeddings(te)
 
@@ -211,7 +221,7 @@ def main() -> None:
 
     with torch.no_grad():
         if not args.unet_only:
-            export_clip_split(pipe, args.output, args.opset)
+            export_clip_split(pipe, args.output, args.opset, args.pipeline)
             export_vae_decoder(pipe, args.output, args.opset, resolutions[0])
             export_vae_encoder(pipe, args.output, args.opset, resolutions[0])
         for res in resolutions:
