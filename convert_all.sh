@@ -38,7 +38,10 @@ if [ "${REBUILD_BIN:-0}" = "1" ]; then
   echo "[*] REBUILD_BIN=1 -> mevcut .bin'ler siliniyor (DLC'ler korunuyor)"
   rm -f "$WORK/qnn/unet.bin" "$WORK/qnn/vae_decoder.bin" "$WORK/qnn/vae_encoder.bin"
 fi
-[ -n "${DSP_ARCH:-}" ] && echo "[*] DSP_ARCH override = $DSP_ARCH" && export DSP_ARCH
+if [ -n "${DSP_ARCH:-}" ]; then
+  echo "[*] DSP_ARCH override = $DSP_ARCH"
+  export DSP_ARCH
+fi
 
 # ---- 0) safetensors -> diffusers ------------------------------------------
 if [ "$FORCE" = 0 ] && [ -f "$WORK/pipeline/model_index.json" ]; then
