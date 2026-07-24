@@ -104,10 +104,26 @@ else
       vae_decoder quant "../$WORK/calib_vae/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_decoder )
 fi
 
-# ---- 6) VAE encoder -> ATLANDI (img2img; simdilik txt2img odakli) ----------
-# vae_encoder de GroupNorm (float destegi yok) + goruntu kalibrasyonu ister;
-# txt2img icin gerekli degil. Ileride int8 olarak eklenebilir.
-echo "### 6) VAE encoder -> ATLANDI (img2img icin; txt2img'de gerekmez)"
+# ---- 6) VAE encoder -> QNN (int8) — motor varsayilan olarak yukler! ---------
+# Motor --no_img2img verilmedikce VAE encoder'i yuklemeye calisir; dosya yoksa
+# 'kod 1' ile coker. Bu yuzden encoder de uretilir (int8, goruntu kalibrasyonu).
+# 6a) VAE encoder kalibrasyonu (decode edilmis goruntuler)
+if [ "$FORCE" = 0 ] && [ -f "$WORK/calib_venc/$TAG/input_list.txt" ]; then
+  echo "### 6a) VAE encoder kalibrasyon [ATLANDI]"
+else
+  echo "### 6a) VAE encoder kalibrasyon verisi"
+  python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
+      --resolution "$TAG" --output "$WORK/calib_venc/$TAG" --target vae_encoder \
+      --num-samples "${VAE_CALIB_N:-6}" --steps "${VAE_CALIB_STEPS:-10}"
+fi
+# 6b) VAE encoder -> QNN (int8, a8w8)
+if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_encoder.bin" ]; then
+  echo "### 6b) VAE encoder -> QNN [ATLANDI]"
+else
+  echo "### 6b) VAE encoder -> QNN (int8, a8w8)"
+  ( cd "$SDIR" && ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
+      vae_encoder quant "../$WORK/calib_venc/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_encoder )
+fi
 
 # ---- 7) paketle -----------------------------------------------------------
 echo "### 7) paketle"
