@@ -51,10 +51,22 @@ def simplify_onnx(path):
 # --------------------------------------------------------------------------
 # CLIP: gomme tablolarini ayir + transformer'i input_embedding alacak sekilde
 # --------------------------------------------------------------------------
+def _find_clip_embeddings(te):
+    """CLIPTextEmbeddings modulunu bul (surumden bagimsiz)."""
+    for m in te.modules():
+        if m.__class__.__name__ == "CLIPTextEmbeddings":
+            return m
+    # ad ile ara (yedek)
+    for m in te.modules():
+        if hasattr(m, "token_embedding") and hasattr(m, "position_embedding"):
+            return m
+    raise RuntimeError("CLIPTextEmbeddings bulunamadi")
+
+
 def export_clip_split(pipe, out_dir, opset):
-    tm = pipe.text_encoder.text_model
-    emb = tm.embeddings
-    hidden = pipe.text_encoder.config.hidden_size
+    te = pipe.text_encoder.eval()
+    hidden = te.config.hidden_size
+    emb = _find_clip_embeddings(te)
 
     # 1) token_emb.bin — HAM fp16 [vocab, hidden]
     tok_w = emb.token_embedding.weight.detach().cpu().numpy().astype(np.float16)
@@ -70,31 +82,30 @@ def export_clip_split(pipe, out_dir, opset):
     print(f"[*] pos_emb.bin    {pos_w.shape} fp32 -> {pos_path} "
           f"({os.path.getsize(pos_path)} B)")
 
-    # 3) clip_v2.onnx — transformer; giris input_embedding, cikis last_hidden_state
+    # 3) clip_v2.onnx — giris input_embedding, cikis last_hidden_state.
+    # text_encoder'i input_ids ile cagirir ama embeddings.forward'i gecici olarak
+    # disaridan gelen gomme ile degistirir (icteki maskeleme surumden bagimsiz calisir).
     class ClipV2(torch.nn.Module):
-        def __init__(self, text_model):
+        def __init__(self, text_encoder, emb_mod):
             super().__init__()
-            self.text_model = text_model
+            self.te = text_encoder
+            self.emb_mod = emb_mod
 
         def forward(self, input_embedding):
-            # embeddings.forward'i gecici olarak dis gomme dondurecek sekilde
-            # degistir; boylece transformers icteki maskeleme/versiyon farklarini
-            # kendi halleder (surumden bagimsiz).
-            emb_mod = self.text_model.embeddings
-            orig = emb_mod.forward
-            emb_mod.forward = lambda *a, **k: input_embedding
+            orig = self.emb_mod.forward
+            self.emb_mod.forward = lambda *a, **k: input_embedding
             try:
                 ids = torch.zeros(input_embedding.shape[:2], dtype=torch.long)
-                out = self.text_model(input_ids=ids)
+                out = self.te(input_ids=ids)
             finally:
-                emb_mod.forward = orig
+                self.emb_mod.forward = orig
             return out.last_hidden_state
 
     path = os.path.join(out_dir, "clip_v2.onnx")
     dummy = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] clip_v2 -> {path}")
     onnx_export(
-        ClipV2(tm).eval(), (dummy,), path,
+        ClipV2(te, emb).eval(), (dummy,), path,
         input_names=["input_embedding"],
         output_names=["last_hidden_state"],
         opset_version=opset,
