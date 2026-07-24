@@ -111,6 +111,48 @@ def gen_real(pipeline_dir, res: Resolution, n: int, steps: int, out: str):
     print(f"[+] {idx} kalibrasyon ornegi uretildi.")
 
 
+def gen_vae_decoder_calib(pipeline_dir, res, n, steps, out):
+    """VAE decoder kalibrasyonu: birkac prompt icin denoising calistirip NIHAI
+    latent'i alir ve OLCEKSIZ (latent/scaling_factor) haliyle 'latent' girisi
+    olarak kaydeder — decoder'in cihazda gordugu dagilim budur."""
+    from diffusers import StableDiffusionPipeline, DDIMScheduler
+    os.makedirs(out, exist_ok=True)
+    pipe = StableDiffusionPipeline.from_pretrained(
+        pipeline_dir, torch_dtype=torch.float32,
+        safety_checker=None, load_safety_checker=False)
+    pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+    sf = pipe.vae.config.scaling_factor
+
+    prompts = [
+        "a portrait of a woman, detailed, photorealistic",
+        "a landscape with mountains and a lake at sunset",
+        "a cat sitting on a wooden table, studio light",
+        "a futuristic city street at night, neon signs",
+        "a bowl of fruit on a kitchen counter",
+        "a fantasy castle on a hill, dramatic clouds",
+    ]
+    lines = []
+    gen = torch.Generator().manual_seed(0)
+    for i, p in enumerate(prompts[:n]):
+        ids = pipe.tokenizer(p, padding="max_length", max_length=TEXT_SEQ_LEN,
+                             truncation=True, return_tensors="pt").input_ids
+        with torch.no_grad():
+            ehs = pipe.text_encoder(ids)[0]
+        latent = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w,
+                             generator=gen)
+        pipe.scheduler.set_timesteps(steps)
+        for t in pipe.scheduler.timesteps:
+            with torch.no_grad():
+                noise = pipe.unet(latent, t, encoder_hidden_states=ehs).sample
+            latent = pipe.scheduler.step(noise, t, latent).prev_sample
+        dec_in = (latent / sf).cpu().numpy().astype(np.float32)  # olceksiz
+        pth = os.path.join(out, f"latent_{i:03d}.raw")
+        dec_in.tofile(pth)
+        lines.append(f"latent:={pth}")
+    _write_list(out, lines)
+    print(f"[+] {len(lines)} VAE decoder kalibrasyon ornegi uretildi.")
+
+
 def _abs_token(tok: str) -> str:
     """'name:=path' veya 'path' icindeki yolu mutlak yapar. qairt-quantizer
     input_list'i farkli bir CWD'den okudugu icin goreli yollar bulunamaz."""
@@ -134,6 +176,7 @@ def main() -> None:
     ap.add_argument("--resolution", default="512x512")
     ap.add_argument("--output", required=True)
     ap.add_argument("--mode", choices=["random", "real"], default="real")
+    ap.add_argument("--target", choices=["unet", "vae_decoder"], default="unet")
     ap.add_argument("--num-samples", type=int, default=8)
     ap.add_argument("--steps", type=int, default=20)
     args = ap.parse_args()
@@ -141,7 +184,10 @@ def main() -> None:
     w, h = args.resolution.lower().split("x")
     res = Resolution(int(w), int(h))
 
-    if args.mode == "random":
+    if args.target == "vae_decoder":
+        gen_vae_decoder_calib(args.pipeline, res, args.num_samples,
+                              args.steps, args.output)
+    elif args.mode == "random":
         from diffusers import StableDiffusionPipeline
         pipe = StableDiffusionPipeline.from_pretrained(
             args.pipeline, torch_dtype=torch.float32,

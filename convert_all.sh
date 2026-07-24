@@ -85,24 +85,29 @@ else
       unet quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 fi
 
-# ---- 5) VAE decoder -> QNN (fp16, graf 'vae_decoder') ---------------------
-if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_decoder.bin" ]; then
-  echo "### 5) VAE decoder -> QNN [ATLANDI]"
+# ---- 5) VAE decoder -> QNN (int8; HTP GroupNorm'u float'ta desteklemez) ----
+# 5a) VAE decoder kalibrasyonu (nihai olceksiz latent'ler)
+if [ "$FORCE" = 0 ] && [ -f "$WORK/calib_vae/$TAG/input_list.txt" ]; then
+  echo "### 5a) VAE decoder kalibrasyon [ATLANDI]"
 else
-  echo "### 5) VAE decoder -> QNN (fp16)"
+  echo "### 5a) VAE decoder kalibrasyon verisi"
+  python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
+      --resolution "$TAG" --output "$WORK/calib_vae/$TAG" --target vae_decoder \
+      --num-samples "${VAE_CALIB_N:-6}" --steps "${VAE_CALIB_STEPS:-10}"
+fi
+# 5b) VAE decoder -> QNN (int8, a8w8)
+if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_decoder.bin" ]; then
+  echo "### 5b) VAE decoder -> QNN [ATLANDI]"
+else
+  echo "### 5b) VAE decoder -> QNN (int8, a8w8)"
   ( cd "$SDIR" && ./03_convert_qnn.sh "../$WORK/onnx/vae_decoder.onnx" \
-      vae_decoder float - "$TIER" "../$WORK/qnn" vae_decoder )
+      vae_decoder quant "../$WORK/calib_vae/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_decoder )
 fi
 
-# ---- 6) VAE encoder -> QNN (fp16, opsiyonel; hata olursa devam) ------------
-if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_encoder.bin" ]; then
-  echo "### 6) VAE encoder -> QNN [ATLANDI]"
-else
-  echo "### 6) VAE encoder -> QNN (fp16, opsiyonel)"
-  ( cd "$SDIR" && ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
-      vae_encoder float - "$TIER" "../$WORK/qnn" vae_encoder ) \
-    || echo "  [!] vae_encoder basarisiz — img2img olmadan devam (txt2img calisir)"
-fi
+# ---- 6) VAE encoder -> ATLANDI (img2img; simdilik txt2img odakli) ----------
+# vae_encoder de GroupNorm (float destegi yok) + goruntu kalibrasyonu ister;
+# txt2img icin gerekli degil. Ileride int8 olarak eklenebilir.
+echo "### 6) VAE encoder -> ATLANDI (img2img icin; txt2img'de gerekmez)"
 
 # ---- 7) paketle -----------------------------------------------------------
 echo "### 7) paketle"
