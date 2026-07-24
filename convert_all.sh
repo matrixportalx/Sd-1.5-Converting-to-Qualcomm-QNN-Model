@@ -31,6 +31,15 @@ SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/scripts" && pwd)"
 WORK="work/$NAME"
 TAG="${RES%%,*}"            # ilk cozunurluk (taban)
 
+# REBUILD_BIN=1 : sadece context binary'leri yeniden uret (kuantize DLC'ler
+# korunur -> dakikalar, saatler degil). dsp_arch degistirmek icin ideal:
+#   DSP_ARCH=v68 REBUILD_BIN=1 ./convert_all.sh ...
+if [ "${REBUILD_BIN:-0}" = "1" ]; then
+  echo "[*] REBUILD_BIN=1 -> mevcut .bin'ler siliniyor (DLC'ler korunuyor)"
+  rm -f "$WORK/qnn/unet.bin" "$WORK/qnn/vae_decoder.bin" "$WORK/qnn/vae_encoder.bin"
+fi
+[ -n "${DSP_ARCH:-}" ] && echo "[*] DSP_ARCH override = $DSP_ARCH" && export DSP_ARCH
+
 # ---- 0) safetensors -> diffusers ------------------------------------------
 if [ "$FORCE" = 0 ] && [ -f "$WORK/pipeline/model_index.json" ]; then
   echo "### 0) safetensors -> diffusers [ATLANDI]"

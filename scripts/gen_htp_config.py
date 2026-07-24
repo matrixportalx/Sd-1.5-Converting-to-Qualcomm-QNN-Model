@@ -25,10 +25,12 @@ def build_ext_config(tier_name: str) -> dict:
     t = get_tier(tier_name)
     # NOT: 'graphs' bloğu 'graph_names' ister (grafik adi bilinmiyor). Sadece
     # 'devices/dsp_arch' yeterli — bu, binary'nin hedef HTP mimarisini belirler.
+    # DSP_ARCH env ile override edilebilir (or. v68 denemek icin: DSP_ARCH=v68).
+    arch = os.environ.get("DSP_ARCH") or t["dsp_arch"]
     return {
         "devices": [
             # dsp_arch belirleyici: v68 = en genis uyumluluk (Snapdragon 7 dahil)
-            {"dsp_arch": t["dsp_arch"]}
+            {"dsp_arch": arch}
         ],
     }
 
@@ -40,7 +42,9 @@ def main() -> None:
                     help="Ana config yolu (qnn-context-binary-generator --config_file)")
     args = ap.parse_args()
 
-    t = get_tier(args.tier)
+    t = dict(get_tier(args.tier))
+    if os.environ.get("DSP_ARCH"):
+        t["dsp_arch"] = os.environ["DSP_ARCH"]
     out_dir = os.path.dirname(os.path.abspath(args.output))
     ext_path = os.path.join(out_dir, f"htp_ext_{args.tier}.json")
 
