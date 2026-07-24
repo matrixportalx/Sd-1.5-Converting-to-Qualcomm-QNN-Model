@@ -63,6 +63,19 @@ binary'sini yükleyemez. Uygulamanın NPU runtime'ı 2.28 ise sorun budur.
 
 (Graf adı ELENDİ: `createModel(path,"unet")` ikinci argümanı yalnızca etiket.)
 
+### Sürüm yolu muhtemelen çıkmaz (2026-07 bulgusu)
+
+- Qualcomm Software Center'da **en eski erişilebilir sürüm 2.32.0.250228** —
+  2.28 artık indirilemiyor.
+- QNN context binary'leri **yalnızca geriye dönük** uyumlu: runtime ≥ binary
+  sürümü olmalı.
+- App build'i 2.39 ise → runtime muhtemelen 2.39 → bizim 2.39 binary'miz zaten
+  uyumlu → `Could not free context` **sürüm değil**.
+- Runtime 2.28 ise → 2.32 de çok yeni (2.28 < 2.32) → yine yüklenmez.
+- **Sonuç:** Elde 2.28 olmadığından sürüm hipotezini ne test edebiliyoruz ne de
+  düzeltebiliyoruz. **Gerçek anahtar `adb logcat` tam logu** —
+  `Could not free context` öncesindeki satır asıl sebebi söyler.
+
 ## Nasıl devam edilir
 
 1. **Kesinleştir (opsiyonel):** `adb logcat` ile motorun TAM logunu al.
