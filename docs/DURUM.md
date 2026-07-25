@@ -306,3 +306,35 @@ Context binary üretimi hedef mimaride düşerse bir üst mimari deneniyor
 cihazlarda çalışmaz. Böylece tek koşuda sonuç alınıyor, 30 dk'lık tur
 tekrarlanmıyor. Kullanılan mimari `<ad>.arch` dosyasına yazılıp adım 6c'de
 raporlanıyor.
+
+## restrict_quantization_steps AĞIRLIK bit genişliğine uygulanıyor (2026-07-25)
+
+```
+Restricting number of quantization steps to: min: -32768 - max: 32639
+ERROR: Cannot restrict quantization steps to -32768 - 32639 for bitwidth: 8 for symmetric
+```
+
+`--help`'teki `"-0x8000 0x7F7F"` örneği **16-bit ağırlık** içindir. Bizde
+`--weights_bitwidth 8` olduğu için aralık da 8-bit olmalı: `-0x80 0x7F`.
+Aktivasyon 16-bit olsa bile restrict, **parametre (ağırlık)** kuantalayıcısına
+uygulanıyor.
+
+`RESTRICT_STEPS=auto` eklendi: aralık `WEIGHT_BW`'den türetiliyor
+(w8 → `-0x80 0x7F`, w16 → `-0x8000 0x7F7F`).
+
+Not: bu hata **saniyeler içinde** çıkıyor (kalibrasyondan önce), yani bu
+aşamadaki denemeler ucuz.
+
+## Çalışma zamanı kapanınca ilerlemenin kaybolması
+
+Colab çalışma zamanı kapandığında her deneme sıfırdan başlıyordu (~35 dk).
+Notebook **2c** hücresi eklendi:
+
+- SDK arşivi Drive'da önbelleğe alınıyor (`QAIRT_CACHE`, ~2 GB) — indirme
+  atlanıyor. Açma **yerel diske** yapılıyor; Drive üzerinden binary
+  çalıştırmak izin/hız sorunu çıkarıyor.
+- `work/` isteğe bağlı olarak Drive'a bağlanıyor (~11 GB/model) — ONNX export,
+  kalibrasyon ve DLC'ler korunuyor, sonraki koşu ~5 dk'ya iniyor.
+
+`setup_qnn_sdk.py` artık `--cache-dir` alıyor ve SDK zaten açıksa hiç
+dokunmuyor.

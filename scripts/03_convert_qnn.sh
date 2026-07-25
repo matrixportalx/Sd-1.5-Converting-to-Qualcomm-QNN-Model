@@ -173,6 +173,17 @@ PY
   # "Value will be ignored" uyarisini basar ve 16-bit MatMul, HTP
   # dogrulamasinda "expected >= 73" hatasiyla duser. Bu yuzden simetrik
   # sema bayragini birlikte veriyoruz.
+  # RESTRICT_STEPS=auto -> araligi AGIRLIK bit genisliginden turet.
+  # Quantizer araligi parametre (agirlik) kuantalayicisina uyguluyor:
+  #   "Cannot restrict quantization steps to -32768 - 32639 for bitwidth: 8"
+  # w8  -> 8-bit aralik  (-0x80  0x7F)
+  # w16 -> 16-bit aralik (-0x8000 0x7F7F)
+  if [ "${RESTRICT_STEPS:-}" = "auto" ]; then
+    case "$WEIGHT_BW" in
+      16) RESTRICT_STEPS="-0x8000 0x7F7F" ;;
+      *)  RESTRICT_STEPS="-0x80 0x7F" ;;
+    esac
+  fi
   if [ -n "${RESTRICT_STEPS:-}" ]; then
     QARGS+=(--restrict_quantization_steps "$RESTRICT_STEPS")
     if has_qflag "--param_quantizer_schema"; then

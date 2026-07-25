@@ -118,6 +118,9 @@ def main():
     ap.add_argument("--repo", default="matrixportalx/qairt-sdk")
     ap.add_argument("--tag", default="v2.39.0.250926")
     ap.add_argument("--dest", default="qairt")
+    ap.add_argument("--cache-dir", default=os.environ.get("QAIRT_CACHE"),
+                    help="Arsivin saklanacagi kalici klasor (or. Drive). "
+                         "Boylece her oturumda yeniden indirilmez.")
     ap.add_argument("--asset-url", default=None,
                     help="Dogrudan indirme linki (API'yi atlar)")
     ap.add_argument("--token", default=os.environ.get("GH_TOKEN")
@@ -128,17 +131,31 @@ def main():
 
     os.makedirs(args.dest, exist_ok=True)
 
+    # SDK zaten acilmissa hic dokunma (yeniden acmak dakikalar suruyor)
+    existing = find_sdk_root(args.dest)
+    if existing:
+        print(f"[*] SDK zaten acik: {existing}")
+        make_bins_executable(existing)
+        print(f"[+] QNN_SDK_ROOT = {existing}")
+        print(f"QNN_SDK_ROOT={existing}")
+        return
+
     if args.asset_url:
         name = os.path.basename(urllib.parse.urlparse(args.asset_url).path)
         url = args.asset_url
     else:
         name, url = resolve_asset(args.repo, args.tag, args.token)
 
-    archive = os.path.join(args.dest, name)
+    # Arsivi kalici cache'te tut (Drive); acma her zaman YEREL diske yapilir —
+    # Drive uzerinden .so/binary calistirmak izin ve hiz sorunlari cikariyor.
+    cache = args.cache_dir or args.dest
+    os.makedirs(cache, exist_ok=True)
+    archive = os.path.join(cache, name)
     if not os.path.exists(archive):
         download(url, archive, args.token)
     else:
-        print(f"[*] Arsiv zaten var: {archive}")
+        print(f"[*] Arsiv onbellekten: {archive} "
+              f"({os.path.getsize(archive)>>20} MB)")
 
     extract(archive, args.dest)
     root = find_sdk_root(args.dest)

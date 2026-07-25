@@ -123,7 +123,7 @@ fi
 #                                 boru hattini test etmek icin)
 UNET_MODE="${UNET_MODE:-a16w8_restrict}"
 case "$UNET_MODE" in
-  a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:--0x8000 0x7F7F}" ;;
+  a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:-auto}" ;;
   a16w8)          U_ACT=16; U_RESTRICT="" ;;
   a8w8)           U_ACT=8;  U_RESTRICT="" ;;
   *) echo "HATA: bilinmeyen UNET_MODE=$UNET_MODE"; exit 1 ;;
