@@ -76,8 +76,10 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v11: UNet a16w8 + restrict steps (override yerine). v10: referans reçetesi — 16-bit I/O override, timestamp INT_32, graf "model", v68.
-EXPORT_VERSION="11"
+# v12: 16-bit graf siniri ile 8-bit ic graf arasina Clip bariyeri (agirliksiz op;
+# QNN 16-bit etiketini to_k/to_v uzerinden ic grafa tasiyamasin).
+# v11: UNet a16w8 + restrict steps. v10: referans recete (16-bit I/O, graf "model", v68).
+EXPORT_VERSION="12"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \

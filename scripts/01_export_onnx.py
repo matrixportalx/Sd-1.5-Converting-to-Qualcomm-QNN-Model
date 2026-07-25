@@ -204,14 +204,32 @@ def export_unet(pipe, out_dir, opset, res):
     unet = pipe.unet.eval()
     hidden = pipe.text_encoder.config.hidden_size
 
+    # 16-bit graf siniri ile 8-bit ic graf arasina BARIYER (Clip -> ReluMinMax).
+    #
+    # Neden: motor sample/text_embedding/output'a uint16 yaziyor, ama v68/v69
+    # 16-bit LayerNorm'u desteklemiyor -> ic hesap 8-bit olmali. Overrides ile
+    # yalnizca sinir tensorlerini 16-bit yapinca QNN etiketi to_k/to_v uzerinden
+    # ic grafa tasiyor ve cross-attention MatMul'unun ikinci operandini "agirlik"
+    # sayip 16-bit'e cekiyor:
+    #   "mixedPrecisionForWeights: attn2/MatMul_1 ... 8 bit activations with
+    #    16 bit weights are not supported on backend"
+    # Clip'in AGIRLIGI YOK; QNN 16-bit girisle 8-bit cikis arasina Convert
+    # ekleyebilir ve etiket daha ileri gitmez.
+    #
+    # Sinirlar gercek dagilimin cok uzerinde (kirpma yapmaz), yalnizca op'un
+    # sadelestirilmemesi icin sonlu.
+    CLIP = 1.0e4
+
     class UNetWrap(torch.nn.Module):
         def __init__(self, unet):
             super().__init__()
             self.unet = unet
 
         def forward(self, sample, timestep, encoder_hidden_states):
-            return self.unet(sample, timestep,
-                             encoder_hidden_states=encoder_hidden_states).sample
+            s = torch.clamp(sample, -CLIP, CLIP)
+            e = torch.clamp(encoder_hidden_states, -CLIP, CLIP)
+            out = self.unet(s, timestep, encoder_hidden_states=e).sample
+            return torch.clamp(out, -CLIP, CLIP)
 
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)

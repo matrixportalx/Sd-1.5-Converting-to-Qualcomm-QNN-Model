@@ -433,3 +433,35 @@ güncellendiği için akış şu hale geldi:
 
 Not defteri dosyası bir daha değişmeyecek; tüm ayar/mod değişiklikleri
 `config.env` üzerinden yapılacak.
+
+## 16-bit etiketi iç grafa sızıyor — Clip bariyeri (2026-07-25)
+
+`a8w8_io16` (yalnız sınır tensörleri 16-bit) denendi:
+
+```
+mixedPrecisionForWeights: /unet/.../attn2/MatMul_1
+because 8 bit activations with 16 bit weights are not supported on backend
+```
+
+Mekanizma: `text_embedding`'in 16-bit encoding'i cross-attention'ın
+`to_k`/`to_v` MatMul'leri üzerinden **iç grafa taşınıyor**. QNN, MatMul'ün
+ikinci operandını "ağırlık" saydığı için K/V 16-bit oluyor, aktivasyonlar
+8-bit kalıyor → desteklenmeyen kombinasyon.
+
+Ayrıca kısmi override dosyası ("Processed 5 quantization encodings") yüzünden
+grafın büyük kısmı **float'a fallback** ediyordu — HTP için ayrıca sorunlu.
+
+**Çözüm (export v12):** ONNX grafında 16-bit sınır ile 8-bit iç graf arasına
+**ağırlıksız bir bariyer** konuyor — `torch.clamp` → ONNX `Clip` →
+QNN `ReluMinMax`:
+
+```python
+s   = torch.clamp(sample, -1e4, 1e4)
+e   = torch.clamp(encoder_hidden_states, -1e4, 1e4)
+out = torch.clamp(unet(s, timestep, e).sample, -1e4, 1e4)
+```
+
+Clip'in ağırlığı olmadığı için `mixedPrecisionForWeights` tetiklenmiyor; QNN
+16-bit giriş ile 8-bit çıkış arasına Convert ekleyebiliyor ve etiket daha ileri
+gitmiyor. Sınırlar gerçek dağılımın çok üzerinde (kırpma yapmaz), yalnızca op
+sadeleştirilmesin diye sonlu.
