@@ -192,3 +192,40 @@ yazılıyordu, oysa ONNX girişi `INT_32`. Quantizer bit desenini tamsayı olara
 okuyordu (`1.0` → `1065353216`), zaman-gömme yolunun tüm encoding'leri
 bozuluyordu. Artık int32 yazılıyor (`CALIB_VERSION=2`; eski kalibrasyon
 otomatik yenileniyor).
+
+## a16w8_restrict de yetmedi — yanlış şema bayrağı (2026-07-25)
+
+`--param_quantizer_schema symmetric` eklemek "Value will be ignored" uyarısını
+sustursa da v68 doğrulaması yine düştü. SDK `--help` metnini satır satır
+okuyunca sebep ortaya çıktı — **yanlış bayrağı kullanmışız**:
+
+| bayrak | kapsamı (SDK --help birebir) |
+|--------|------------------------------|
+| `--use_per_channel_quantization` | "per-channel quantization for **convolution-based** op weights" |
+| `--use_per_row_quantization` | "rowwise quantization of **Matmul and FullyConnected** ops" |
+
+Düşen op'lar tam olarak **MatMul**. `restrict_quantization_steps`'in aradığı
+"symmetric **or per channel/row**" koşulunu MatMul için sağlayan bayrak
+`--use_per_row_quantization`; per-channel yalnızca konvolüsyonları kapsıyor.
+Artık `RESTRICT_STEPS` verildiğinde ikisi birden gönderiliyor.
+
+Ayrıca `--help`'te daha önce fark edilmeyen iki mekanizma var:
+
+- `--target_backend BACKEND` / `--target_soc_model SOC_MODEL` — backend-aware
+  kuantizasyon; quantizer op bazında hedefin desteklediği hassasiyeti seçer.
+- `--config CONFIG_FILE` — quantizer yapılandırma dosyası (op/tensor bazında
+  bitwidth = gerçek karma hassasiyet).
+
+Bunların bu SDK'daki tam sözdizimini tahmin etmemek için
+`scripts/dump_sdk_help.sh` (notebook **4c**, ~30 sn) eklendi: `--help`
+çıktılarının TAMAMINI ve SDK içindeki mixed-precision örneklerini döker.
+
+`QUANT_EXTRA` form alanı ile quantizer'a kod değiştirmeden ek bayrak
+geçilebiliyor.
+
+### Kesinleşen mantık
+
+Referans binary v68'de çalışıyor **ve** graf I/O'su 16-bit. 16-bit MatMul ise
+v73+ istiyor. Dolayısıyla referansın **iç hesapları 8-bit, yalnızca graf sınırı
+16-bit** olmak zorunda — yani hedef tam a16w8 değil, **karma hassasiyet**.
+Bu artık bir hipotez değil, mantıksal zorunluluk.

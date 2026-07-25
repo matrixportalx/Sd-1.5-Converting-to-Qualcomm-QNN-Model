@@ -60,8 +60,8 @@ run_tool() {  # mode(py|native) tool args...
   if [ "$m" = py ]; then "$QNN_PY" "$BIN/$tool" "$@" || rc=$?; else "$BIN/$tool" "$@" || rc=$?; fi
   if [ "$rc" -ne 0 ]; then
     echo ""; echo "!!! '$tool' BASARISIZ (kod $rc). Arayuz (--help) — BU CIKTIYI PAYLAS:"
-    if [ "$m" = py ]; then "$QNN_PY" "$BIN/$tool" --help 2>&1 | head -150 || true
-    else "$BIN/$tool" --help 2>&1 | head -150 || true; fi
+    if [ "$m" = py ]; then "$QNN_PY" "$BIN/$tool" --help 2>&1 | head -400 || true
+    else "$BIN/$tool" --help 2>&1 | head -400 || true; fi
     exit "$rc"
   fi
 }
@@ -121,11 +121,23 @@ PY
     elif has_qflag "--param_quantizer"; then
       QARGS+=(--param_quantizer symmetric)
     fi
-    # PER_CHANNEL=1 ile per-channel agirlik kuantizasyonu da acilabilir
-    # (kosulu ayrica saglar, kaliteyi artirir; varsayilan kapali).
-    if [ "${PER_CHANNEL:-0}" = "1" ] && has_qflag "--use_per_channel_quantization"; then
+    # --use_per_row_quantization = "rowwise quantization of Matmul and
+    # FullyConnected ops" (SDK --help). Sorunlu op'lar tam olarak MatMul
+    # oldugu icin restrict_quantization_steps'in aradigi "per channel/row"
+    # semasini saglayan DOGRU bayrak budur; per_channel yalnizca konvolusyon
+    # agirliklarini kapsar.
+    if [ "${PER_ROW:-1}" = "1" ] && has_qflag "--use_per_row_quantization"; then
+      QARGS+=(--use_per_row_quantization)
+    fi
+    if [ "${PER_CHANNEL:-1}" = "1" ] && has_qflag "--use_per_channel_quantization"; then
       QARGS+=(--use_per_channel_quantization)
     fi
+  fi
+  # QUANT_EXTRA: notebook'tan serbest bayrak gecisi (kod duzenlemeden deneme).
+  # ornek: QUANT_EXTRA="--target_backend HTP --act_quantizer_calibration mse"
+  if [ -n "${QUANT_EXTRA:-}" ]; then
+    # shellcheck disable=SC2206
+    QARGS+=(${QUANT_EXTRA})
   fi
   # Kuantalayici argumanlari degistiyse DLC'yi yeniden uret (FORCE gerekmeden).
   Q_SIG="$WORK/${GRAPH}_q.args"
