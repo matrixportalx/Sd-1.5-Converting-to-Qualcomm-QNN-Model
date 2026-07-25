@@ -59,5 +59,41 @@ grep -rn -i "expected >= 73\|16.*matmul\|matmul.*16" \
 hdr "7) Desteklenen --target_soc_model degerleri (SDK'dan okunur)"
 "$QNN_PY" "$(dirname "${BASH_SOURCE[0]}")/list_soc_models.py" 2>&1 | head -80 || true
 
+# ---------------------------------------------------------------------------
+# ASIL ARANAN: graf I/O'sunu 16-bit yapip ic hesabi 8-bit birakmanin resmi yolu.
+# qairt-converter --dump_config_template <yaml> ile SEMA dokuluyor; duzenlenip
+# --config ile geri veriliyor.
+# ---------------------------------------------------------------------------
+hdr "8) qairt-converter I/O config YAML SABLONU (--dump_config_template)"
+TPL=/tmp/io_config_template.yaml
+"$QNN_PY" "$BIN/qairt-converter" --dump_config_template "$TPL" 2>&1 | tail -5 || true
+if [ -f "$TPL" ]; then cat "$TPL"; else echo "(sablon uretilemedi)"; fi
+
+hdr "9) qairt-quantizer --config YAML sablonu (varsa)"
+for f in $(find "$QNN_SDK_ROOT" \( -iname '*quantizer*config*' -o -iname '*config*template*' \) \
+           2>/dev/null | grep -iE '\.(yaml|yml|json)$' | head -5); do
+  echo "--- $f ---"; head -60 "$f"
+done
+
+hdr "10) HTP opdef surum gecmisi — 16-bit hangi surumde acildi?"
+H="$QNN_SDK_ROOT/docs/QNN/general/htp/htp_opdef_version_history.html"
+if [ -f "$H" ]; then
+  python3 - "$H" <<'PY'
+import re, sys
+txt = open(sys.argv[1], errors="ignore").read()
+txt = re.sub(r"<[^>]+>", " ", txt)
+txt = re.sub(r"[ \t]+", " ", txt)
+lines = [l.strip() for l in txt.splitlines() if l.strip()]
+keys = ("layernorm", "layer_norm", "matmul", "int16", "fixed_point_16",
+        "v68", "v69", "v73", "version")
+for i, l in enumerate(lines):
+    low = l.lower()
+    if any(k in low for k in keys):
+        print(l[:200])
+PY
+else
+  echo "(bulunamadi: $H)"
+fi
+
 echo
 echo ">>> BITTI. Bu ciktinin TAMAMINI paylas."

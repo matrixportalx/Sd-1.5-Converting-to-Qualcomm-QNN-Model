@@ -131,19 +131,33 @@ fi
 # UNET_MODE:
 #   a16w8_restrict (varsayilan) : referans recete
 #   a16w8                       : restrict yok (v73+ gerektirir)
+#   a8w8_io16                   : ic hesap 8-bit + graf sinirlari 16-bit
+#                                 (karma hassasiyet — referansin yaptigi)
 #   a8w8                        : tam 8-bit — DERLENIR ama motor uint16
 #                                 yazdigi icin CIHAZDA YUKLENMEZ (yalnizca
 #                                 boru hattini test etmek icin)
 UNET_MODE="${UNET_MODE:-a16w8_restrict}"
+U_OVERRIDES=""      # yalnizca UNet'e verilir; VAE adimlarina SIZMAMALI
 case "$UNET_MODE" in
   a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:-auto}" ;;
   a16w8)          U_ACT=16; U_RESTRICT="" ;;
   a8w8)           U_ACT=8;  U_RESTRICT="" ;;
+  a8w8_io16)
+    # KARMA HASSASIYET: ic hesap 8-bit (v68'de LayerNorm/Conv/MatMul hepsi
+    # gecerli), YALNIZCA graf sinir tensorleri 16-bit — referansin
+    # UFIXED_POINT_16 I/O'su boyle elde edilir. QNN sinirla ic graf arasina
+    # Convert op'lari ekler.
+    U_ACT=8; U_RESTRICT=""
+    echo "  [io16] sinir tensorleri icin 16-bit encoding uretiliyor"
+    python3 "$SDIR/gen_io_encodings.py" --calib "$WORK/calib/$TAG" \
+        --output "$WORK/onnx/unet_io_encodings.json"
+    U_OVERRIDES="$(cd "$WORK/onnx" && pwd)/unet_io_encodings.json"
+    ;;
   *) echo "HATA: bilinmeyen UNET_MODE=$UNET_MODE"; exit 1 ;;
 esac
 echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
 ( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
-    RESTRICT_STEPS="$U_RESTRICT" \
+    RESTRICT_STEPS="$U_RESTRICT" QUANT_OVERRIDES="$U_OVERRIDES" \
     ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
     model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 

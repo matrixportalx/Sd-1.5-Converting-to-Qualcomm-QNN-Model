@@ -375,3 +375,42 @@ ile bir kez daha koşulur. Notebook'ta `HIZLI_DENEME` kutusu.
 
 Kalibrasyon damgalarına örnek sayıları eklendi; mod değişince ilgili
 kalibrasyon ve kuantize DLC otomatik yenileniyor.
+
+## Conv aşıldı, sıra LayerNorm'da — tam a16 v68'de mümkün değil (2026-07-25)
+
+`PER_CHANNEL` kapatılınca `/unet/conv_in/Conv` geçti. Yeni hata ilk transformer
+bloğunda:
+
+```
+<E> None of the combinations match the provided case
+<E> Failed to validate op .../transformer_blocks.0/norm1/LayerNormalization
+```
+
+"None of the combinations match" = op'un dtype kombinasyonu HTP tablosunda yok.
+v68 **ve** v69'da aynı hata. Yani **LayerNorm 16-bit aktivasyonu bu
+mimarilerde desteklenmiyor**.
+
+### Kesin sonuç
+
+Tam `a16w8` bu cihazda mümkün değil. Adım adım öğrendiklerimiz:
+
+| op | a16 v68'de | çözüm |
+|----|-----------|-------|
+| MatMul | ✗ → ✓ | symmetric + per_row + restrict steps |
+| Conv | ✓ (per_channel kapalı) | `PER_CHANNEL=0` |
+| LayerNorm | ✗ | **yok** — 8-bit olmalı |
+
+Referans binary v68'de çalışıyor ve I/O'su 16-bit olduğuna göre iç hesabı
+8-bit olmak **zorunda**: karma hassasiyet.
+
+### İki yol
+
+1. **`UNET_MODE=a8w8_io16`** — iç hesap 8-bit (hepsi geçerli), yalnızca
+   `sample`/`text_embedding`/`output` 16-bit (`--quantization_overrides`,
+   `gen_io_encodings.py`). QNN sınır ile iç graf arasına Convert op'ları ekler.
+2. **`qairt-converter --config <yaml>`** — SDK'nın resmi I/O yapılandırması.
+   `--dump_config_template` ile şema dökülüyor. Şemayı tahmin etmemek için
+   `dump_sdk_help.sh` bölüm 8'e ve adım 4'ün loguna eklendi.
+
+Ayrıca `dump_sdk_help.sh` bölüm 10, `htp_opdef_version_history.html`'i düz
+metne çevirip hangi HTP sürümünde hangi op'un 16-bit'e açıldığını listeliyor.

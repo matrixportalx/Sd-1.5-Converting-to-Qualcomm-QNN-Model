@@ -64,6 +64,19 @@ conv_help() {
 }
 has_cflag() { conv_help | grep -q -- "$1"; }
 
+# Graf I/O'sunu 16-bit yapip ic hesabi 8-bit birakmanin resmi yolu:
+# qairt-converter --dump_config_template <yaml> -> duzenle -> --config <yaml>
+# Sablonu bir kez dokup logliyoruz (saniyeler surer, semayi gormek icin).
+IO_TPL="$OUT/io_config_template.yaml"
+if [ "${DUMP_IO_TEMPLATE:-1}" = "1" ] && [ ! -f "$IO_TPL" ] \
+   && has_cflag "--dump_config_template"; then
+  "$QNN_PY" "$BIN/qairt-converter" --dump_config_template "$IO_TPL" >/dev/null 2>&1 || true
+  if [ -f "$IO_TPL" ]; then
+    echo "  [io-config sablonu] $IO_TPL — BU BLOGU PAYLAS:"
+    sed 's/^/    | /' "$IO_TPL" | head -80
+  fi
+fi
+
 # ---- Backend-aware kuantizasyon -------------------------------------------
 # qairt --help "Backend Options":
 #   --target_backend BACKEND     "generate a graph optimized for the given backend"
