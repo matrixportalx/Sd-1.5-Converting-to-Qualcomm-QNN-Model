@@ -67,6 +67,15 @@ if [ -n "${DSP_ARCH:-}" ]; then
   export DSP_ARCH
 fi
 
+# ---- SDK surum yoklamasi (PROBE_SDK=1) -------------------------------------
+# Referans modeller QNN 2.28 ile uretilmis. Software Center arayuzu eski
+# surumleri listelemiyor ama dogrudan API yolu genelde sunmaya devam ediyor.
+# Bu yoklama ~30 sn surer ve donusumu engellemez.
+if [ "${PROBE_SDK:-0}" = "1" ]; then
+  python3 "$SDIR/probe_qairt_versions.py" || true
+  echo
+fi
+
 # ---- 0) safetensors -> diffusers ------------------------------------------
 if [ "$FORCE" = 0 ] && [ -f "$WORK/pipeline/model_index.json" ]; then
   echo "### 0) safetensors -> diffusers [ATLANDI]"

@@ -465,3 +465,24 @@ Clip'in ağırlığı olmadığı için `mixedPrecisionForWeights` tetiklenmiyor
 16-bit giriş ile 8-bit çıkış arasına Convert ekleyebiliyor ve etiket daha ileri
 gitmiyor. Sınırlar gerçek dağılımın çok üzerinde (kırpma yapmaz), yalnızca op
 sadeleştirilmesin diye sonlu.
+
+## SDK 2.28 arayışı — Software Center'ın doğrudan API yolu (2026-07-25)
+
+Software Center'ın **arayüzü** yalnızca güncel sürümleri listeliyor (en eski
+2.32), ama **doğrudan API yolu** genelde eski sürümleri de sunmaya devam
+ediyor. Radxa ve sherpa dokümanları bu URL'yi girişsiz düz `wget` ile
+kullanıyor:
+
+```
+https://softwarecenter.qualcomm.com/api/download/software/sdks/
+    Qualcomm_AI_Runtime_Community/All/<SÜRÜM>/v<SÜRÜM>.zip
+```
+
+`scripts/probe_qairt_versions.py` 2.24 – 2.32 arası adayları HEAD isteğiyle
+yokluyor ve indirilebilenleri boyutlarıyla listeliyor. `config.env`'de
+`OVERRIDE_PROBE_SDK=1` ile koşunun başında çalışıyor (~30 sn, dönüşümü
+engellemiyor).
+
+Bir sürüm bulunursa `OVERRIDE_QAIRT_ASSET_URL` ile kullanılır:
+`setup_qnn_sdk.py` artık `config.env`'i **kendisi okuyor**, yani SDK sürümünü
+değiştirmek için de not defterine dokunmak gerekmiyor.

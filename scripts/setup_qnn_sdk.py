@@ -129,6 +129,29 @@ def main():
                     help="QNN_SDK_ROOT'u $GITHUB_ENV'e de yaz (Actions)")
     args = ap.parse_args()
 
+    # config.env -> OVERRIDE_QAIRT_ASSET_URL / OVERRIDE_QAIRT_TAG
+    # Not defterine dokunmadan SDK surumu degistirebilmek icin (bkz. config.env).
+    cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "config.env")
+    if os.path.exists(cfg):
+        for line in open(cfg):
+            line = line.strip()
+            if not line.startswith("OVERRIDE_QAIRT_"):
+                continue
+            key, _, val = line.partition("=")
+            val = val.split("#")[0].strip()
+            if not val:
+                continue
+            if key == "OVERRIDE_QAIRT_ASSET_URL":
+                args.asset_url = val
+                print(f"[config.env] asset_url = {val}")
+            elif key == "OVERRIDE_QAIRT_TAG":
+                args.tag = val
+                print(f"[config.env] tag = {val}")
+            elif key == "OVERRIDE_QAIRT_REPO":
+                args.repo = val
+                print(f"[config.env] repo = {val}")
+
     os.makedirs(args.dest, exist_ok=True)
 
     # SDK zaten acilmissa hic dokunma (yeniden acmak dakikalar suruyor)
