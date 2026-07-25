@@ -52,8 +52,8 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v8: VAE a8w8 (v69 Conv yalnizca a8w8 destekler; a8w16 gecersiz).
-EXPORT_VERSION="8"
+# v9: token_emb fp32 + clip.mnn + QNN runtime .so (referans zip ile eslestir).
+EXPORT_VERSION="9"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \

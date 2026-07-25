@@ -22,4 +22,12 @@ echo "==> clip_v2.onnx -> clip_v2.mnn"
 "$MNNCONVERT" -f ONNX --modelFile "$ONNX_DIR/clip_v2.onnx" \
   --MNNModel "$OUT/clip_v2.mnn" --bizCode localdream $fp16_flag
 
-echo "[+] MNN cikti -> $OUT/clip_v2.mnn"
+# Referans paketlerde clip.mnn (tam CLIP, giris input_ids) de bulunur.
+if [ -f "$ONNX_DIR/clip.onnx" ]; then
+  echo "==> clip.onnx -> clip.mnn"
+  "$MNNCONVERT" -f ONNX --modelFile "$ONNX_DIR/clip.onnx" \
+    --MNNModel "$OUT/clip.mnn" --bizCode localdream $fp16_flag \
+    || echo "  [!] clip.mnn uretilemedi (opsiyonel, devam)"
+fi
+
+echo "[+] MNN cikti -> $OUT"

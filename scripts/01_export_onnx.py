@@ -78,11 +78,13 @@ def export_clip_split(pipe, out_dir, opset, pipeline_dir):
     hidden = te.config.hidden_size
     emb = _find_clip_embeddings(te)
 
-    # 1) token_emb.bin — HAM fp16 [vocab, hidden]
-    tok_w = emb.token_embedding.weight.detach().cpu().numpy().astype(np.float16)
+    # 1) token_emb.bin — HAM fp32 [vocab, hidden]
+    # Referans model: 49408*768*4 = 151,781,376 bayt -> fp32 (fp16 DEGIL).
+    # TextEncoder.hpp 100MB esigine gore fp32 legacy yolunu secer.
+    tok_w = emb.token_embedding.weight.detach().cpu().numpy().astype(np.float32)
     tok_path = os.path.join(out_dir, "token_emb.bin")
     tok_w.tofile(tok_path)
-    print(f"[*] token_emb.bin  {tok_w.shape} fp16 -> {tok_path} "
+    print(f"[*] token_emb.bin  {tok_w.shape} fp32 -> {tok_path} "
           f"({os.path.getsize(tok_path)>>20} MB)")
 
     # 2) pos_emb.bin — HAM fp32 [77, hidden]
@@ -122,6 +124,28 @@ def export_clip_split(pipe, out_dir, opset, pipeline_dir):
         do_constant_folding=True,
     )
     simplify_onnx(path)
+
+    # 4) clip.onnx — TAM CLIP (gomme dahil, giris input_ids). Referans paketlerde
+    # clip.mnn hem clip_v2.mnn ile birlikte bulunur.
+    class ClipFull(torch.nn.Module):
+        def __init__(self, text_encoder):
+            super().__init__()
+            self.te = text_encoder
+
+        def forward(self, input_ids):
+            return self.te(input_ids=input_ids).last_hidden_state
+
+    path_full = os.path.join(out_dir, "clip.onnx")
+    dummy_ids = torch.randint(0, 1000, (1, TEXT_SEQ_LEN), dtype=torch.int32)
+    print(f"[*] clip (tam) -> {path_full}")
+    onnx_export(
+        ClipFull(te).eval(), (dummy_ids,), path_full,
+        input_names=["input_ids"],
+        output_names=["last_hidden_state"],
+        opset_version=opset,
+        do_constant_folding=True,
+    )
+    simplify_onnx(path_full)
 
 
 # --------------------------------------------------------------------------
