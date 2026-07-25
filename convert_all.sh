@@ -24,6 +24,28 @@ QNN_VERSION="${QNN_VERSION:-2.39}"
 FORCE="${FORCE:-0}"
 export FORCE
 
+# ---- config.env: NOT DEFTERINE DOKUNMADAN ayar degistirme -------------------
+# Not defterini yeniden acmak Colab'da yeni calisma zamani = her seyi sifirdan
+# derlemek demek. Bunu onlemek icin ayarlar depodaki config.env'den okunur;
+# 2. adimdaki `git reset --hard` dosyayi guncelledigi icin AYNI OTURUMDA
+# yeni ayarlarla kosulabilir.
+#   OVERRIDE_<AD>=<deger>  ->  <AD> notebook ne derse desin bu degeri alir.
+_CFG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.env"
+if [ -f "$_CFG" ]; then
+  _applied=""
+  while IFS='=' read -r _k _v; do
+    case "$_k" in
+      OVERRIDE_*)
+        _name="${_k#OVERRIDE_}"
+        _v="${_v%%#*}"; _v="${_v%"${_v##*[![:space:]]}"}"   # yorum + bosluk kirp
+        export "$_name=$_v"
+        _applied="$_applied $_name=$_v"
+        ;;
+    esac
+  done < <(grep -E '^[[:space:]]*OVERRIDE_[A-Z_]+=' "$_CFG" | sed 's/^[[:space:]]*//')
+  [ -n "$_applied" ] && echo "[config.env] EZILEN AYARLAR:$_applied"
+fi
+
 # VAE'ler her tier'da a8w8 (UNet'in bit genisligi adim 4'te ayrica verilir)
 export ACT_BW="${ACT_BW:-8}"
 

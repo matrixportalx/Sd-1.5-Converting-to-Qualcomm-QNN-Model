@@ -414,3 +414,22 @@ Referans binary v68'de çalışıyor ve I/O'su 16-bit olduğuna göre iç hesab�
 
 Ayrıca `dump_sdk_help.sh` bölüm 10, `htp_opdef_version_history.html`'i düz
 metne çevirip hangi HTP sürümünde hangi op'un 16-bit'e açıldığını listeliyor.
+
+## config.env — not defterini bir daha açmaya gerek yok (2026-07-25)
+
+**Sorun:** Her ayar/kod değişikliğinde not defterini GitHub'dan yeniden açmak
+gerekiyordu. Colab'da bu **yeni çalışma zamanı** demek: `work/`, SDK, pipeline
+— hepsi silinir, her deneme baştan ~35 dk.
+
+**Çözüm:** Ayarlar artık depodaki `config.env`'den okunuyor.
+`OVERRIDE_<AD>=<değer>` satırları not defterindeki seçimleri **ezer**.
+
+`config.env` not defterinin **2. adımındaki** `git reset --hard` ile
+güncellendiği için akış şu hale geldi:
+
+```
+(aynı oturum)  2. adım  →  6. adım
+```
+
+Not defteri dosyası bir daha değişmeyecek; tüm ayar/mod değişiklikleri
+`config.env` üzerinden yapılacak.
