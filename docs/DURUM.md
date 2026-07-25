@@ -229,3 +229,53 @@ Referans binary v68'de çalışıyor **ve** graf I/O'su 16-bit. 16-bit MatMul is
 v73+ istiyor. Dolayısıyla referansın **iç hesapları 8-bit, yalnızca graf sınırı
 16-bit** olmak zorunda — yani hedef tam a16w8 değil, **karma hassasiyet**.
 Bu artık bir hipotez değil, mantıksal zorunluluk.
+
+## ÇÖZÜM YOLU: backend-aware kuantizasyon (2026-07-25)
+
+`head -150` yüzünden `qairt` yardım metninin **"Backend Options"** bölümü
+aylardır görülmemiş. Tam döküm (`scripts/dump_sdk_help.sh`, notebook 4c):
+
+```
+Backend Options:
+  --target_backend BACKEND
+      Use this option to specify the backend on which the model needs to run.
+      Providing this option will generate a graph optimized for the given
+      backend and this graph may not run on other backends.
+      Supported backends are CPU,GPU,DSP,HTP,HTA,LPAI.
+  --target_soc_model SOC_MODEL
+      Use this option to specify the SOC on which the model needs to run.
+      NOTE: --target_backend option must be provided to use --target_soc_model
+```
+
+Bu seçenekler **hem `qairt-converter` hem `qairt-quantizer`** için var. Hedef
+SoC verilmediğinde araçlar genel bir graf üretiyor ve v68/v69'da desteklenmeyen
+op'lar ancak context-binary aşamasında `expected >= 73` ile reddediliyor.
+SoC söylendiğinde quantizer op bazında hedefin desteklediği hassasiyeti seçiyor.
+
+SDK'nın kendi sürüm notu a16w8'in v68'de çalıştığını doğruluyor:
+
+> Op:HTP: Addressed performance issues when converting models with **w8a16**
+> compared to w8a8 on **SM8350** by optimizing matmul and Gemm
+
+SM8350 (Snapdragon 888) = **HTP v68**. Yani a16w8 v68'de destekleniyor.
+
+### HTP mimarisi → hedef SoC eşlemesi (03_convert_qnn.sh)
+
+| DSP_ARCH | TARGET_SOC | cihaz |
+|----------|-----------|-------|
+| v68 | SM8350 | Snapdragon 888 / 778G |
+| v69 | SM7450 | **Snapdragon 7 Gen 1** / 8 Gen 1 |
+| v73 | SM8550 | Snapdragon 8 Gen 2 |
+| v75 | SM8650 | Snapdragon 8 Gen 3 |
+| v79 | SM8750 | Snapdragon 8 Elite |
+
+`min` tier → v68 → SM8350 (referansla birebir). Notebook'ta `TARGET_SOC`
+alanından değiştirilebilir; `"yok"` seçilirse backend-aware kapanır.
+
+### Ayrıca: akıllı yeniden üretim
+
+Her aşama artık argüman imzası tutuyor (`<graf>.args`, `<graf>_q.args`,
+`<ad>.bin.args`). Bir ayar değişince yalnızca etkilenen aşamalar yeniden
+çalışıyor; `FORCE=1` ile her şeyi baştan yapmak gerekmiyor. `convert_all.sh`
+içindeki "`.bin` varsa atla" kontrolleri kaldırıldı — bu kontroller yüzünden
+ayar değişse bile eski binary korunuyordu.

@@ -55,6 +55,49 @@ quant_help() {  # qairt-quantizer --help ciktisini bir kez yakala (bayrak adi te
 }
 has_qflag() { quant_help | grep -q -- "$1"; }
 
+_CHELP=""
+conv_help() {
+  if [ -z "$_CHELP" ]; then
+    _CHELP="$("$QNN_PY" "$BIN/qairt-converter" --help 2>&1 || true)"
+  fi
+  printf '%s' "$_CHELP"
+}
+has_cflag() { conv_help | grep -q -- "$1"; }
+
+# ---- Backend-aware kuantizasyon -------------------------------------------
+# qairt --help "Backend Options":
+#   --target_backend BACKEND     "generate a graph optimized for the given backend"
+#   --target_soc_model SOC_MODEL "the SOC on which the model needs to run"
+# Hedef SoC verilmezse quantizer genel bir graf uretir ve v68/v69'da
+# desteklenmeyen (or. 16-bit MatMul) op'lar context-binary asamasinda
+# "expected >= 73" ile reddedilir. SoC'yi soyleyince quantizer op bazinda
+# hedefin destekledigi hassasiyeti secer.
+#
+# HTP mimarisi -> temsili SoC (SDK sürüm notu w8a16'yi SM8350/v68 icin anlatir)
+_arch="${DSP_ARCH:-}"
+if [ -z "$_arch" ]; then
+  case "$TIER" in min) _arch=v68 ;; mid) _arch=v73 ;; high) _arch=v75 ;; esac
+fi
+case "$_arch" in
+  v68) SOC_DEF=SM8350 ;;   # Snapdragon 888 / 778G
+  v69) SOC_DEF=SM7450 ;;   # Snapdragon 7 Gen 1 / 8 Gen 1
+  v73) SOC_DEF=SM8550 ;;   # Snapdragon 8 Gen 2
+  v75) SOC_DEF=SM8650 ;;   # Snapdragon 8 Gen 3
+  v79) SOC_DEF=SM8750 ;;   # Snapdragon 8 Elite
+  *)   SOC_DEF="" ;;
+esac
+TARGET_BACKEND="${TARGET_BACKEND:-HTP}"
+TARGET_SOC="${TARGET_SOC-$SOC_DEF}"   # TARGET_SOC="" ile kapatilabilir
+
+BE_Q=(); BE_C=()
+if [ -n "$TARGET_SOC" ] && [ -n "$TARGET_BACKEND" ]; then
+  has_qflag "--target_backend" && \
+    BE_Q=(--target_backend "$TARGET_BACKEND" --target_soc_model "$TARGET_SOC")
+  has_cflag "--target_backend" && \
+    BE_C=(--target_backend "$TARGET_BACKEND" --target_soc_model "$TARGET_SOC")
+  echo "  [backend-aware] $TARGET_BACKEND / $TARGET_SOC (htp $_arch)"
+fi
+
 run_tool() {  # mode(py|native) tool args...
   local m="$1"; shift; local tool="$1"; shift; local rc=0
   if [ "$m" = py ]; then "$QNN_PY" "$BIN/$tool" "$@" || rc=$?; else "$BIN/$tool" "$@" || rc=$?; fi
@@ -70,20 +113,24 @@ command -v qairt-converter >/dev/null 2>&1 || { echo "HATA: qairt-converter yok"
 
 # Graf adi = DLC dosya adi (uygulama bu adi bekler)
 FP_DLC="$WORK/${GRAPH}.dlc"
-if [ -f "$FP_DLC" ] && [ "${FORCE:-0}" != "1" ]; then
-  echo "  [converter] ATLANDI ($FP_DLC var)"
+CARGS=("${BE_C[@]+"${BE_C[@]}"}")
+# QUANT_OVERRIDES: karma hassasiyet (16-bit graf I/O + 8-bit ic hesap).
+if [ -n "${QUANT_OVERRIDES:-}" ] && [ -f "${QUANT_OVERRIDES}" ]; then
+  CARGS+=(--quantization_overrides "$QUANT_OVERRIDES")
+fi
+C_SIG="$WORK/${GRAPH}.args"
+C_SIG_NEW="${CARGS[*]:-}"
+if [ -f "$FP_DLC" ] && [ "${FORCE:-0}" != "1" ] \
+   && [ "$(cat "$C_SIG" 2>/dev/null)" = "$C_SIG_NEW" ]; then
+  echo "  [converter] ATLANDI ($FP_DLC guncel)"
 else
-  echo "  [converter] $ONNX -> $FP_DLC (graf: $GRAPH)"
-  # QUANT_OVERRIDES: karma hassasiyet (16-bit graf I/O + 8-bit ic hesap).
-  # Referans UNet binary'si UFIXED_POINT_16 I/O kullanir; v68'de 16-bit MatMul
-  # desteklenmedigi icin YALNIZCA sinir tensorleri 16-bit yapilir.
-  if [ -n "${QUANT_OVERRIDES:-}" ] && [ -f "${QUANT_OVERRIDES}" ]; then
-    echo "    [overrides] $QUANT_OVERRIDES (16-bit I/O)"
-    run_tool py qairt-converter --input_network "$ONNX" --output_path "$FP_DLC" \
-      --quantization_overrides "$QUANT_OVERRIDES"
-  else
-    run_tool py qairt-converter --input_network "$ONNX" --output_path "$FP_DLC"
-  fi
+  [ -f "$FP_DLC" ] && echo "  [converter] argumanlar degisti -> yeniden donusum"
+  echo "  [converter] $ONNX -> $FP_DLC (graf: $GRAPH) ${C_SIG_NEW}"
+  run_tool py qairt-converter --input_network "$ONNX" --output_path "$FP_DLC" \
+    "${CARGS[@]+"${CARGS[@]}"}"
+  echo "$C_SIG_NEW" > "$C_SIG"
+  # fp DLC degisti -> kuantize DLC ve context binary gecersiz
+  rm -f "$WORK/${GRAPH}_q.dlc" "$WORK/${GRAPH}_q.args" "$OUT/${OUT_NAME}.bin"
 fi
 
 if [ "$MODE" = quant ]; then
@@ -105,7 +152,7 @@ for line in open(src):
 open(dst,"w").write("\n".join(out)+"\n")
 PY
   Q_DLC="$WORK/${GRAPH}_q.dlc"
-  QARGS=()
+  QARGS=("${BE_Q[@]+"${BE_Q[@]}"}")
   # RESTRICT_STEPS: 16-bit MatMul icin QAIRT tarafindan GEREKLI
   # (--help: "This argument is required for 16-bit Matmul operations")
   #
@@ -162,9 +209,19 @@ else
   DLC_FOR_BIN="$FP_DLC"
 fi
 
-echo "  [context-bin] $DLC_FOR_BIN -> $OUT/${OUT_NAME}.bin"
-run_tool native qnn-context-binary-generator \
-  --dlc_path "$DLC_FOR_BIN" --backend "$HTP_BACKEND" --config_file "$HTP_CFG" \
-  --binary_file "$OUT_NAME" --output_dir "$OUT"
+# Context binary imzasi: kaynak DLC (boyut+mtime) + hedef mimari. Degismediyse
+# ~3 dk'lik uretimi atla; degistiyse otomatik yenile (FORCE gerekmez).
+B_SIG="$OUT/${OUT_NAME}.bin.args"
+B_SIG_NEW="$(stat -c '%s:%Y' "$DLC_FOR_BIN" 2>/dev/null) arch=${DSP_ARCH:-$TIER}"
+if [ -f "$OUT/${OUT_NAME}.bin" ] && [ "${FORCE:-0}" != "1" ] \
+   && [ "$(cat "$B_SIG" 2>/dev/null)" = "$B_SIG_NEW" ]; then
+  echo "  [context-bin] ATLANDI ($OUT/${OUT_NAME}.bin guncel)"
+else
+  echo "  [context-bin] $DLC_FOR_BIN -> $OUT/${OUT_NAME}.bin"
+  run_tool native qnn-context-binary-generator \
+    --dlc_path "$DLC_FOR_BIN" --backend "$HTP_BACKEND" --config_file "$HTP_CFG" \
+    --binary_file "$OUT_NAME" --output_dir "$OUT"
+  echo "$B_SIG_NEW" > "$B_SIG"
+fi
 
 echo "[+] $OUT/${OUT_NAME}.bin"

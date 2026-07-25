@@ -24,8 +24,8 @@ QNN_VERSION="${QNN_VERSION:-2.39}"
 FORCE="${FORCE:-0}"
 export FORCE
 
-# min (v69) 16-bit MatMul'u desteklemez -> UNet 8-bit
-if [ "$TIER" = "min" ]; then export ACT_BW="${ACT_BW:-8}"; else export ACT_BW="${ACT_BW:-16}"; fi
+# VAE'ler her tier'da a8w8 (UNet'in bit genisligi adim 4'te ayrica verilir)
+export ACT_BW="${ACT_BW:-8}"
 
 SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/scripts" && pwd)"
 WORK="work/$NAME"
@@ -106,34 +106,33 @@ else
         "$WORK/qnn/unet.bin"
 fi
 
-# ---- 4) UNet -> QNN (int8, graf 'unet') -----------------------------------
-if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/unet.bin" ]; then
-  echo "### 4) UNet -> QNN [ATLANDI]"
-else
-  # Referans: I/O UFIXED_16 -> TAM 16-bit aktivasyon (a16w8).
-  # 16-bit MatMul icin --restrict_quantization_steps ZORUNLU (QAIRT --help) VE
-  # restrict ancak simetrik/per-channel parametre kuantalayiciyla uygulanir
-  # (bkz. scripts/03_convert_qnn.sh).
-  #
-  # UNET_MODE ile denenebilecek secenekler:
-  #   a16w8_restrict (varsayilan) : referans recete, v68'de 16-bit MatMul
-  #   a16w8                       : restrict yok (v73+ gerektirir)
-  #   a8w8                        : tam 8-bit — DERLENIR ama motor uint16
-  #                                 yazdigi icin CIHAZDA YUKLENMEZ (sadece
-  #                                 boru hattini test etmek icin)
-  UNET_MODE="${UNET_MODE:-a16w8_restrict}"
-  case "$UNET_MODE" in
-    a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:--0x8000 0x7F7F}" ;;
-    a16w8)          U_ACT=16; U_RESTRICT="" ;;
-    a8w8)           U_ACT=8;  U_RESTRICT="" ;;
-    *) echo "HATA: bilinmeyen UNET_MODE=$UNET_MODE"; exit 1 ;;
-  esac
-  echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
-  ( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
-      RESTRICT_STEPS="$U_RESTRICT" \
-      ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
-      model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
-fi
+# ---- 4) UNet -> QNN (graf 'model') ----------------------------------------
+# Referans binary: I/O UFIXED_POINT_16 + timestamp INT_32, dspArch 68.
+# Motor bu tipleri SABIT bekledigi icin 16-bit I/O zorunlu.
+#
+# v68'de 16-bit MatMul'un kabul edilmesi icin quantizer'a hedef backend/SoC
+# soylenir (--target_backend HTP --target_soc_model SM8350); ayrica
+# --restrict_quantization_steps + simetrik/per-row sema verilir.
+# Ayrintilar: scripts/03_convert_qnn.sh
+#
+# UNET_MODE:
+#   a16w8_restrict (varsayilan) : referans recete
+#   a16w8                       : restrict yok (v73+ gerektirir)
+#   a8w8                        : tam 8-bit — DERLENIR ama motor uint16
+#                                 yazdigi icin CIHAZDA YUKLENMEZ (yalnizca
+#                                 boru hattini test etmek icin)
+UNET_MODE="${UNET_MODE:-a16w8_restrict}"
+case "$UNET_MODE" in
+  a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:--0x8000 0x7F7F}" ;;
+  a16w8)          U_ACT=16; U_RESTRICT="" ;;
+  a8w8)           U_ACT=8;  U_RESTRICT="" ;;
+  *) echo "HATA: bilinmeyen UNET_MODE=$UNET_MODE"; exit 1 ;;
+esac
+echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
+( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
+    RESTRICT_STEPS="$U_RESTRICT" \
+    ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
+    model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 
 # ---- 5) VAE decoder -> QNN (int8; HTP GroupNorm'u float'ta desteklemez) ----
 # 5a) VAE decoder kalibrasyonu (nihai olceksiz latent'ler)
@@ -146,13 +145,9 @@ else
       --num-samples "${VAE_CALIB_N:-6}" --steps "${VAE_CALIB_STEPS:-10}"
 fi
 # 5b) VAE decoder -> QNN (int8, a8w8)
-if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_decoder.bin" ]; then
-  echo "### 5b) VAE decoder -> QNN [ATLANDI]"
-else
-  echo "### 5b) VAE decoder -> QNN (a8w8)"
-  ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_decoder.onnx" \
-      vae_decoder quant "../$WORK/calib_vae/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_decoder )
-fi
+echo "### 5b) VAE decoder -> QNN (a8w8)"
+( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_decoder.onnx" \
+    vae_decoder quant "../$WORK/calib_vae/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_decoder )
 
 # ---- 6) VAE encoder -> QNN (int8) — motor varsayilan olarak yukler! ---------
 # Motor --no_img2img verilmedikce VAE encoder'i yuklemeye calisir; dosya yoksa
@@ -167,13 +162,9 @@ else
       --num-samples "${VAE_CALIB_N:-6}" --steps "${VAE_CALIB_STEPS:-10}"
 fi
 # 6b) VAE encoder -> QNN (int8, a8w8)
-if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/vae_encoder.bin" ]; then
-  echo "### 6b) VAE encoder -> QNN [ATLANDI]"
-else
-  echo "### 6b) VAE encoder -> QNN (a8w8)"
-  ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
-      vae_encoder quant "../$WORK/calib_venc/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_encoder )
-fi
+echo "### 6b) VAE encoder -> QNN (a8w8)"
+( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
+    vae_encoder quant "../$WORK/calib_venc/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_encoder )
 
 # ---- 6c) uretilen unet.bin'in I/O tiplerini dogrula ------------------------
 # Motor sample/text_embedding'e uint16, timestamp'e int32 yazar. Tipler
