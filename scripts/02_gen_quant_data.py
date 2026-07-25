@@ -41,7 +41,7 @@ def gen_random(res: Resolution, hidden: int, n: int, out: str):
         tp = os.path.join(out, f"timestep_{i:03d}.raw")
         ep = os.path.join(out, f"ehs_{i:03d}.raw")
         _save_raw(s, sp); _save_raw(t, tp); _save_raw(e, ep)
-        lines.append(f"sample:={sp} timestep:={tp} encoder_hidden_states:={ep}")
+        lines.append(f"sample:={sp} timestamp:={tp} text_embedding:={ep}")
     _write_list(out, lines)
 
 
@@ -104,7 +104,7 @@ def gen_real(pipeline_dir, res: Resolution, n: int, steps: int, out: str):
             _save_raw(np.array([float(t)], dtype=np.float32), tp)
             _save_raw(ehs.cpu().numpy(), ep)
             lines.append(
-                f"sample:={sp} timestep:={tp} encoder_hidden_states:={ep}")
+                f"sample:={sp} timestamp:={tp} text_embedding:={ep}")
             latent = pipe.scheduler.step(noise, t, latent).prev_sample
             idx += 1
     _write_list(out, lines)

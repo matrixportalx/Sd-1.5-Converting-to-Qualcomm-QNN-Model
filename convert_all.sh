@@ -81,6 +81,13 @@ else
 fi
 
 # ---- 3) UNet kalibrasyonu (int8 icin) -------------------------------------
+# Tensor isimleri degistiyse (timestamp/text_embedding) kalibrasyon listesi
+# gecersizdir -> yeniden uret.
+if [ -f "$WORK/calib/$TAG/input_list.txt" ] && \
+   ! grep -q "text_embedding:=" "$WORK/calib/$TAG/input_list.txt"; then
+  echo "[*] Kalibrasyon listesi eski tensor isimleri iceriyor -> yenilenecek"
+  rm -rf "$WORK/calib/$TAG"
+fi
 if [ "$FORCE" = 0 ] && [ -f "$WORK/calib/$TAG/input_list.txt" ]; then
   echo "### 3) UNet kalibrasyon [ATLANDI]"
 else
