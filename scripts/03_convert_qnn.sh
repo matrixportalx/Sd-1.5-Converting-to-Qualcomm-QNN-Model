@@ -70,7 +70,10 @@ has_cflag() { conv_help | grep -q -- "$1"; }
 IO_TPL="$OUT/io_config_template.yaml"
 if [ "${DUMP_IO_TEMPLATE:-1}" = "1" ] && [ ! -f "$IO_TPL" ] \
    && has_cflag "--dump_config_template"; then
+  # --input_network zorunlu arguman; once onsuz dene, olmazsa ONNX ile.
   "$QNN_PY" "$BIN/qairt-converter" --dump_config_template "$IO_TPL" >/dev/null 2>&1 || true
+  [ -f "$IO_TPL" ] || "$QNN_PY" "$BIN/qairt-converter" --input_network "$ONNX" \
+      --dump_config_template "$IO_TPL" >/dev/null 2>&1 || true
   if [ -f "$IO_TPL" ]; then
     echo "  [io-config sablonu] $IO_TPL — BU BLOGU PAYLAS:"
     sed 's/^/    | /' "$IO_TPL" | head -80

@@ -66,7 +66,16 @@ hdr "7) Desteklenen --target_soc_model degerleri (SDK'dan okunur)"
 # ---------------------------------------------------------------------------
 hdr "8) qairt-converter I/O config YAML SABLONU (--dump_config_template)"
 TPL=/tmp/io_config_template.yaml
-"$QNN_PY" "$BIN/qairt-converter" --dump_config_template "$TPL" 2>&1 | tail -5 || true
+# --input_network zorunlu olabilir; hata mesajini da gorelim.
+"$QNN_PY" "$BIN/qairt-converter" --dump_config_template "$TPL" 2>&1 | tail -8 || true
+if [ ! -f "$TPL" ]; then
+  ONNX_ANY="$(find /content/sd-qnn/work -name 'unet_*.onnx' 2>/dev/null | head -1)"
+  if [ -n "$ONNX_ANY" ]; then
+    echo "--- --input_network ile tekrar deneniyor: $ONNX_ANY"
+    "$QNN_PY" "$BIN/qairt-converter" --input_network "$ONNX_ANY" \
+        --dump_config_template "$TPL" 2>&1 | tail -8 || true
+  fi
+fi
 if [ -f "$TPL" ]; then cat "$TPL"; else echo "(sablon uretilemedi)"; fi
 
 hdr "9) qairt-quantizer --config YAML sablonu (varsa)"
