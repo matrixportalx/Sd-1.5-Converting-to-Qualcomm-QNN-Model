@@ -30,17 +30,24 @@ def _save_raw(arr: np.ndarray, path: str) -> None:
     arr.astype(np.float32).tofile(path)
 
 
+def _save_timestep(t, path: str) -> None:
+    """ONNX'te 'timestamp' girisi INT_32'dir (referans binary de INT_32).
+    Kalibrasyonu float32 yazarsak quantizer bit desenini tamsayi olarak okur
+    (1.0 -> 1065353216) ve zaman-gomme yolunun tum encoding'leri bozulur."""
+    np.array([int(round(float(t)))], dtype=np.int32).tofile(path)
+
+
 def gen_random(res: Resolution, hidden: int, n: int, out: str):
     os.makedirs(out, exist_ok=True)
     lines = []
     for i in range(n):
         s = np.random.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)
-        t = np.array([np.random.randint(0, 1000)], dtype=np.float32)
+        t = np.random.randint(0, 1000)
         e = np.random.randn(1, TEXT_SEQ_LEN, hidden)
         sp = os.path.join(out, f"sample_{i:03d}.raw")
         tp = os.path.join(out, f"timestep_{i:03d}.raw")
         ep = os.path.join(out, f"ehs_{i:03d}.raw")
-        _save_raw(s, sp); _save_raw(t, tp); _save_raw(e, ep)
+        _save_raw(s, sp); _save_timestep(t, tp); _save_raw(e, ep)
         lines.append(f"sample:={sp} timestamp:={tp} text_embedding:={ep}")
     _write_list(out, lines)
 
@@ -101,7 +108,7 @@ def gen_real(pipeline_dir, res: Resolution, n: int, steps: int, out: str):
             tp = os.path.join(out, f"timestep_{idx:04d}.raw")
             ep = os.path.join(out, f"ehs_{idx:04d}.raw")
             _save_raw(latent.cpu().numpy(), sp)
-            _save_raw(np.array([float(t)], dtype=np.float32), tp)
+            _save_timestep(t, tp)
             _save_raw(ehs.cpu().numpy(), ep)
             lines.append(
                 f"sample:={sp} timestamp:={tp} text_embedding:={ep}")

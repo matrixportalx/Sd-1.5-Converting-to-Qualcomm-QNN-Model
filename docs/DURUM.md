@@ -170,3 +170,25 @@ cihazda **çalışan** ama düşük kaliteli bir model elde edilir; ya da
   yoksa "Motor süreci kapandı (kod 1)".
 - Kalibrasyon tensör isimleri ONNX giriş isimleriyle birebir aynı olmalı:
   `sample`, `timestamp`, `text_embedding`.
+
+## a8w8 bu uygulamada ASLA çalışmaz (2026-07-25 doğrulandı)
+
+`UNET_MODE=a8w8` ile paket **üretildi** (829 MB unet.bin, zip 882 MB) ama
+cihazda yine `Motor süreci beklenmedik şekilde kapandı (kod 1)` /
+`Could not free context` verdi.
+
+Sebep kesin: motor (`QnnModel.hpp`) UNet tamponlarına **sabit tiple** yazıyor —
+`sample`/`text_embedding` → `uint16_t`, `timestamp` → `int32_t`. Binary
+`UFIXED_POINT_8` beklerse motor eleman başına 2 bayt yazar, tampon taşar ve
+süreç çöker. Yani **16-bit I/O zorunlu**, pazarlık payı yok.
+
+Bu yüzden `scripts/check_bin_io.py` eklendi: üretilen `unet.bin`'in gerçek
+girdi/çıktı tipleri `qnn-context-binary-utility` ile okunup motorun beklediğiyle
+karşılaştırılıyor (`convert_all.sh` adım **6c**). Uyuşmazlık varsa paketi
+telefona atmadan Colab çıktısında görülüyor.
+
+Ayrıca kalibrasyon hatası düzeltildi: `timestep_*.raw` dosyaları **float32**
+yazılıyordu, oysa ONNX girişi `INT_32`. Quantizer bit desenini tamsayı olarak
+okuyordu (`1.0` → `1065353216`), zaman-gömme yolunun tüm encoding'leri
+bozuluyordu. Artık int32 yazılıyor (`CALIB_VERSION=2`; eski kalibrasyon
+otomatik yenileniyor).

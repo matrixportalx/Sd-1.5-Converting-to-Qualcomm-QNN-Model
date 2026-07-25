@@ -88,13 +88,22 @@ if [ -f "$WORK/calib/$TAG/input_list.txt" ] && \
   echo "[*] Kalibrasyon listesi eski tensor isimleri iceriyor -> yenilenecek"
   rm -rf "$WORK/calib/$TAG"
 fi
-if [ "$FORCE" = 0 ] && [ -f "$WORK/calib/$TAG/input_list.txt" ]; then
+# v2: timestep raw'lari INT_32 (eskiden float32 -> quantizer bit desenini
+# tamsayi okuyup zaman-gomme encoding'lerini bozuyordu)
+CALIB_VERSION="2"
+CSTAMP="$WORK/calib/$TAG/.calib_version"
+if [ "$FORCE" = 0 ] && [ -f "$WORK/calib/$TAG/input_list.txt" ] \
+   && [ "$(cat "$CSTAMP" 2>/dev/null)" = "$CALIB_VERSION" ]; then
   echo "### 3) UNet kalibrasyon [ATLANDI]"
 else
-  echo "### 3) UNet kalibrasyon verisi"
+  echo "### 3) UNet kalibrasyon verisi (v$CALIB_VERSION)"
   python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
       --resolution "$TAG" --output "$WORK/calib/$TAG" --mode real \
       --num-samples "${CALIB_PROMPTS:-4}" --steps "${CALIB_STEPS:-4}"
+  echo "$CALIB_VERSION" > "$CSTAMP"
+  # kalibrasyon degisti -> kuantize UNet DLC gecersiz
+  rm -f "$WORK/qnn/build/model/model_q.dlc" "$WORK/qnn/build/model/model_q.args" \
+        "$WORK/qnn/unet.bin"
 fi
 
 # ---- 4) UNet -> QNN (int8, graf 'unet') -----------------------------------
@@ -109,7 +118,9 @@ else
   # UNET_MODE ile denenebilecek secenekler:
   #   a16w8_restrict (varsayilan) : referans recete, v68'de 16-bit MatMul
   #   a16w8                       : restrict yok (v73+ gerektirir)
-  #   a8w8                        : tam 8-bit — her zaman calisir, kalite dusuk
+  #   a8w8                        : tam 8-bit — DERLENIR ama motor uint16
+  #                                 yazdigi icin CIHAZDA YUKLENMEZ (sadece
+  #                                 boru hattini test etmek icin)
   UNET_MODE="${UNET_MODE:-a16w8_restrict}"
   case "$UNET_MODE" in
     a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:--0x8000 0x7F7F}" ;;
@@ -163,6 +174,13 @@ else
   ( cd "$SDIR" && WEIGHT_BW="${VAE_WEIGHT_BW:-8}" ./03_convert_qnn.sh "../$WORK/onnx/vae_encoder.onnx" \
       vae_encoder quant "../$WORK/calib_venc/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" vae_encoder )
 fi
+
+# ---- 6c) uretilen unet.bin'in I/O tiplerini dogrula ------------------------
+# Motor sample/text_embedding'e uint16, timestamp'e int32 yazar. Tipler
+# tutmuyorsa paketi telefona atmadan BURADA ogrenelim.
+echo "### 6c) unet.bin I/O tip dogrulamasi"
+python3 "$SDIR/check_bin_io.py" --bin "$WORK/qnn/unet.bin" --expect unet \
+  ${STRICT_IO:+--strict} || true
 
 # ---- 7) paketle -----------------------------------------------------------
 echo "### 7) paketle"
