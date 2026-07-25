@@ -54,8 +54,8 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v10: referans reçetesi — 16-bit I/O override, timestamp INT_32, graf "model", v68.
-EXPORT_VERSION="10"
+# v11: UNet a16w8 + restrict steps (override yerine). v10: referans reçetesi — 16-bit I/O override, timestamp INT_32, graf "model", v68.
+EXPORT_VERSION="11"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
@@ -101,11 +101,12 @@ fi
 if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/unet.bin" ]; then
   echo "### 4) UNet -> QNN [ATLANDI]"
 else
-  echo "### 4) UNet -> QNN (ic 8-bit + 16-bit I/O, graf 'model')"
-  # Referansla eslesmek icin graf I/O 16-bit (UFIXED_POINT_16) olmali
-  ENC="$WORK/onnx/unet_io_encodings.json"
-  python3 "$SDIR/gen_io_encodings.py" --calib "$WORK/calib/$TAG" --output "$ENC"
-  ( cd "$SDIR" && QUANT_OVERRIDES="../$ENC" ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
+  # Referans: I/O UFIXED_16 -> TAM 16-bit aktivasyon (a16w8).
+  # 16-bit MatMul icin --restrict_quantization_steps ZORUNLU (QAIRT --help).
+  echo "### 4) UNet -> QNN (a16w8 + restrict steps, graf 'model')"
+  ( cd "$SDIR" && ACT_BW=16 WEIGHT_BW=8 \
+      RESTRICT_STEPS="${UNET_RESTRICT:--0x8000 0x7F7F}" \
+      ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
       model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 fi
 

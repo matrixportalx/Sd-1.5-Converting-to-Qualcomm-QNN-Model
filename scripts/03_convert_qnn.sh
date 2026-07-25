@@ -100,9 +100,20 @@ PY
     echo "  [quantizer] ATLANDI ($Q_DLC var)"
   else
     echo "  [quantizer] a${ACT_BW}w${WEIGHT_BW} kalibrasyon"
-    run_tool py qairt-quantizer --input_dlc "$FP_DLC" --input_list "$ABS_LIST" \
-      --act_bitwidth "$ACT_BW" --weights_bitwidth "$WEIGHT_BW" \
-      --bias_bitwidth "$BIAS_BW" --output_dlc "$Q_DLC"
+    # RESTRICT_STEPS: 16-bit MatMul icin QAIRT tarafindan GEREKLI
+    # (--help: "This argument is required for 16-bit Matmul operations")
+    if [ -n "${RESTRICT_STEPS:-}" ]; then
+      echo "    [restrict] $RESTRICT_STEPS"
+      run_tool py qairt-quantizer --input_dlc "$FP_DLC" --input_list "$ABS_LIST" \
+        --act_bitwidth "$ACT_BW" --weights_bitwidth "$WEIGHT_BW" \
+        --bias_bitwidth "$BIAS_BW" \
+        --restrict_quantization_steps "$RESTRICT_STEPS" \
+        --output_dlc "$Q_DLC"
+    else
+      run_tool py qairt-quantizer --input_dlc "$FP_DLC" --input_list "$ABS_LIST" \
+        --act_bitwidth "$ACT_BW" --weights_bitwidth "$WEIGHT_BW" \
+        --bias_bitwidth "$BIAS_BW" --output_dlc "$Q_DLC"
+    fi
   fi
   DLC_FOR_BIN="$Q_DLC"
 else
