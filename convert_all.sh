@@ -38,6 +38,8 @@ if [ "${REBUILD_BIN:-0}" = "1" ]; then
   echo "[*] REBUILD_BIN=1 -> mevcut .bin'ler siliniyor (DLC'ler korunuyor)"
   rm -f "$WORK/qnn/unet.bin" "$WORK/qnn/vae_decoder.bin" "$WORK/qnn/vae_encoder.bin"
 fi
+# Referans binary dspArch=68 -> min tier varsayilani v68 (v69 donanimda da calisir)
+if [ "$TIER" = "min" ] && [ -z "${DSP_ARCH:-}" ]; then DSP_ARCH=v68; fi
 if [ -n "${DSP_ARCH:-}" ]; then
   echo "[*] DSP_ARCH override = $DSP_ARCH"
   export DSP_ARCH
@@ -52,8 +54,8 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v9: token_emb fp32 + clip.mnn + QNN runtime .so (referans zip ile eslestir).
-EXPORT_VERSION="9"
+# v10: referans reçetesi — 16-bit I/O override, timestamp INT_32, graf "model", v68.
+EXPORT_VERSION="10"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
@@ -92,9 +94,12 @@ fi
 if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/unet.bin" ]; then
   echo "### 4) UNet -> QNN [ATLANDI]"
 else
-  echo "### 4) UNet -> QNN (int8, a${ACT_BW}w8)"
-  ( cd "$SDIR" && ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
-      unet quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
+  echo "### 4) UNet -> QNN (ic 8-bit + 16-bit I/O, graf 'model')"
+  # Referansla eslesmek icin graf I/O 16-bit (UFIXED_POINT_16) olmali
+  ENC="$WORK/onnx/unet_io_encodings.json"
+  python3 "$SDIR/gen_io_encodings.py" --calib "$WORK/calib/$TAG" --output "$ENC"
+  ( cd "$SDIR" && QUANT_OVERRIDES="../$ENC" ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
+      model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 fi
 
 # ---- 5) VAE decoder -> QNN (int8; HTP GroupNorm'u float'ta desteklemez) ----

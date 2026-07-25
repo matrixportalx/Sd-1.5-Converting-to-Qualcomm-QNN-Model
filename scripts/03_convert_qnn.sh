@@ -65,7 +65,16 @@ if [ -f "$FP_DLC" ] && [ "${FORCE:-0}" != "1" ]; then
   echo "  [converter] ATLANDI ($FP_DLC var)"
 else
   echo "  [converter] $ONNX -> $FP_DLC (graf: $GRAPH)"
-  run_tool py qairt-converter --input_network "$ONNX" --output_path "$FP_DLC"
+  # QUANT_OVERRIDES: karma hassasiyet (16-bit graf I/O + 8-bit ic hesap).
+  # Referans UNet binary'si UFIXED_POINT_16 I/O kullanir; v68'de 16-bit MatMul
+  # desteklenmedigi icin YALNIZCA sinir tensorleri 16-bit yapilir.
+  if [ -n "${QUANT_OVERRIDES:-}" ] && [ -f "${QUANT_OVERRIDES}" ]; then
+    echo "    [overrides] $QUANT_OVERRIDES (16-bit I/O)"
+    run_tool py qairt-converter --input_network "$ONNX" --output_path "$FP_DLC" \
+      --quantization_overrides "$QUANT_OVERRIDES"
+  else
+    run_tool py qairt-converter --input_network "$ONNX" --output_path "$FP_DLC"
+  fi
 fi
 
 if [ "$MODE" = quant ]; then

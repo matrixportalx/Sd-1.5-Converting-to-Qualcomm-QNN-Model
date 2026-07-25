@@ -215,13 +215,15 @@ def export_unet(pipe, out_dir, opset, res):
 
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)
-    timestep = torch.tensor([1], dtype=torch.float32)   # rank-1 (HTP)
+    # Referans binary: timestamp = INT_32, dims [1] (rank-1). Birebir eslesmeli.
+    timestep = torch.tensor([1], dtype=torch.int32)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
     onnx_export(
         UNetWrap(unet), (sample, timestep, ehs), path,
-        input_names=["sample", "timestep", "encoder_hidden_states"],
-        output_names=["noise_pred"],
+        # Isimler referansla birebir: sample / timestamp / text_embedding / output
+        input_names=["sample", "timestamp", "text_embedding"],
+        output_names=["output"],
         opset_version=opset, do_constant_folding=True)
 
 
