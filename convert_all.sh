@@ -102,10 +102,24 @@ if [ "$FORCE" = 0 ] && [ -f "$WORK/qnn/unet.bin" ]; then
   echo "### 4) UNet -> QNN [ATLANDI]"
 else
   # Referans: I/O UFIXED_16 -> TAM 16-bit aktivasyon (a16w8).
-  # 16-bit MatMul icin --restrict_quantization_steps ZORUNLU (QAIRT --help).
-  echo "### 4) UNet -> QNN (a16w8 + restrict steps, graf 'model')"
-  ( cd "$SDIR" && ACT_BW=16 WEIGHT_BW=8 \
-      RESTRICT_STEPS="${UNET_RESTRICT:--0x8000 0x7F7F}" \
+  # 16-bit MatMul icin --restrict_quantization_steps ZORUNLU (QAIRT --help) VE
+  # restrict ancak simetrik/per-channel parametre kuantalayiciyla uygulanir
+  # (bkz. scripts/03_convert_qnn.sh).
+  #
+  # UNET_MODE ile denenebilecek secenekler:
+  #   a16w8_restrict (varsayilan) : referans recete, v68'de 16-bit MatMul
+  #   a16w8                       : restrict yok (v73+ gerektirir)
+  #   a8w8                        : tam 8-bit — her zaman calisir, kalite dusuk
+  UNET_MODE="${UNET_MODE:-a16w8_restrict}"
+  case "$UNET_MODE" in
+    a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:--0x8000 0x7F7F}" ;;
+    a16w8)          U_ACT=16; U_RESTRICT="" ;;
+    a8w8)           U_ACT=8;  U_RESTRICT="" ;;
+    *) echo "HATA: bilinmeyen UNET_MODE=$UNET_MODE"; exit 1 ;;
+  esac
+  echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
+  ( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
+      RESTRICT_STEPS="$U_RESTRICT" \
       ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
       model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 fi

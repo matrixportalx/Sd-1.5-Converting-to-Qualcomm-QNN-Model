@@ -46,6 +46,15 @@ HTP_CFG="$WORK/htp_${TIER}.json"
 python3 "$SCRIPT_DIR/gen_htp_config.py" --tier "$TIER" --output "$HTP_CFG"
 HTP_BACKEND="$LIB/libQnnHtp.so"
 
+_QHELP=""
+quant_help() {  # qairt-quantizer --help ciktisini bir kez yakala (bayrak adi tespiti)
+  if [ -z "$_QHELP" ]; then
+    _QHELP="$("$QNN_PY" "$BIN/qairt-quantizer" --help 2>&1 || true)"
+  fi
+  printf '%s' "$_QHELP"
+}
+has_qflag() { quant_help | grep -q -- "$1"; }
+
 run_tool() {  # mode(py|native) tool args...
   local m="$1"; shift; local tool="$1"; shift; local rc=0
   if [ "$m" = py ]; then "$QNN_PY" "$BIN/$tool" "$@" || rc=$?; else "$BIN/$tool" "$@" || rc=$?; fi
@@ -96,24 +105,44 @@ for line in open(src):
 open(dst,"w").write("\n".join(out)+"\n")
 PY
   Q_DLC="$WORK/${GRAPH}_q.dlc"
-  if [ -f "$Q_DLC" ] && [ "${FORCE:-0}" != "1" ]; then
-    echo "  [quantizer] ATLANDI ($Q_DLC var)"
-  else
-    echo "  [quantizer] a${ACT_BW}w${WEIGHT_BW} kalibrasyon"
-    # RESTRICT_STEPS: 16-bit MatMul icin QAIRT tarafindan GEREKLI
-    # (--help: "This argument is required for 16-bit Matmul operations")
-    if [ -n "${RESTRICT_STEPS:-}" ]; then
-      echo "    [restrict] $RESTRICT_STEPS"
-      run_tool py qairt-quantizer --input_dlc "$FP_DLC" --input_list "$ABS_LIST" \
-        --act_bitwidth "$ACT_BW" --weights_bitwidth "$WEIGHT_BW" \
-        --bias_bitwidth "$BIAS_BW" \
-        --restrict_quantization_steps "$RESTRICT_STEPS" \
-        --output_dlc "$Q_DLC"
-    else
-      run_tool py qairt-quantizer --input_dlc "$FP_DLC" --input_list "$ABS_LIST" \
-        --act_bitwidth "$ACT_BW" --weights_bitwidth "$WEIGHT_BW" \
-        --bias_bitwidth "$BIAS_BW" --output_dlc "$Q_DLC"
+  QARGS=()
+  # RESTRICT_STEPS: 16-bit MatMul icin QAIRT tarafindan GEREKLI
+  # (--help: "This argument is required for 16-bit Matmul operations")
+  #
+  # ONEMLI: restrict_quantization_steps YALNIZCA parametre kuantalayici
+  # simetrik ya da per-channel/row oldugunda uygulanir; aksi halde QAIRT
+  # "Value will be ignored" uyarisini basar ve 16-bit MatMul, HTP
+  # dogrulamasinda "expected >= 73" hatasiyla duser. Bu yuzden simetrik
+  # sema bayragini birlikte veriyoruz.
+  if [ -n "${RESTRICT_STEPS:-}" ]; then
+    QARGS+=(--restrict_quantization_steps "$RESTRICT_STEPS")
+    if has_qflag "--param_quantizer_schema"; then
+      QARGS+=(--param_quantizer_schema symmetric)
+    elif has_qflag "--param_quantizer"; then
+      QARGS+=(--param_quantizer symmetric)
     fi
+    # PER_CHANNEL=1 ile per-channel agirlik kuantizasyonu da acilabilir
+    # (kosulu ayrica saglar, kaliteyi artirir; varsayilan kapali).
+    if [ "${PER_CHANNEL:-0}" = "1" ] && has_qflag "--use_per_channel_quantization"; then
+      QARGS+=(--use_per_channel_quantization)
+    fi
+  fi
+  # Kuantalayici argumanlari degistiyse DLC'yi yeniden uret (FORCE gerekmeden).
+  Q_SIG="$WORK/${GRAPH}_q.args"
+  Q_SIG_NEW="a${ACT_BW} w${WEIGHT_BW} b${BIAS_BW} ${QARGS[*]:-}"
+  if [ -f "$Q_DLC" ] && [ "${FORCE:-0}" != "1" ] \
+     && [ "$(cat "$Q_SIG" 2>/dev/null)" = "$Q_SIG_NEW" ]; then
+    echo "  [quantizer] ATLANDI ($Q_DLC guncel)"
+  else
+    [ -f "$Q_DLC" ] && echo "  [quantizer] argumanlar degisti -> yeniden kuantize"
+    echo "  [quantizer] $Q_SIG_NEW"
+    run_tool py qairt-quantizer --input_dlc "$FP_DLC" --input_list "$ABS_LIST" \
+      --act_bitwidth "$ACT_BW" --weights_bitwidth "$WEIGHT_BW" \
+      --bias_bitwidth "$BIAS_BW" "${QARGS[@]+"${QARGS[@]}"}" \
+      --output_dlc "$Q_DLC"
+    echo "$Q_SIG_NEW" > "$Q_SIG"
+    # Kuantizasyon degisti -> eski context binary gecersiz
+    rm -f "$OUT/${OUT_NAME}.bin"
   fi
   DLC_FOR_BIN="$Q_DLC"
 else

@@ -97,3 +97,76 @@ Local Dream, `.safetensors`'ı **doğrudan CPU modeli** olarak içe aktarabiliyo
 (uygulama otomatik MNN'e çevirir — `cyberrealisticLCM_cyberrealistic42` örneği
 bu şekilde). NPU kadar hızlı değil ama **bugün çalışır**. Acil görüntü üretimi
 için bu yol kullanılabilir; NPU dönüşümü beklerken.
+
+---
+
+# GÜNCEL DURUM (2026-07) — 16-bit UNet / v68
+
+Yukarıdaki "sürüm uyumsuzluğu" hipotezi **ELENDİ**. Referans binary'nin
+metadata'sı (`qnn-context-binary-utility`, notebook 4b) şunu gösterdi:
+
+| tensör           | referans tip      | bizde (eski) |
+|------------------|-------------------|--------------|
+| `sample`         | `UFIXED_POINT_16` | `UFIXED_POINT_8` |
+| `timestamp`      | `INT_32`          | `FLOAT_32` |
+| `text_embedding` | `UFIXED_POINT_16` | `UFIXED_POINT_8` |
+| `output`         | `UFIXED_POINT_16` | `UFIXED_POINT_8` |
+| graf adı         | `model`           | `unet` |
+| `dspArch`        | `68`              | `69` |
+
+Yani `Could not free context` sürümden değil, **I/O tipi/graf adı
+uyuşmazlığından** geliyordu. Hepsi düzeltildi (export v10/v11, graf adı `model`,
+`min` tier varsayılanı `v68`).
+
+## 16-bit MatMul tuzağı (asıl engel)
+
+`a16w8` denendiğinde context-binary üretimi şununla düşüyor:
+
+```
+<E> [4294967295] has incorrect Value 68, expected >= 73.
+<E> Failed to validate op .../attn1/MatMul with error 0xc26
+```
+
+v68/v69'da 16-bit MatMul **yalnızca kısıtlı kuantizasyon adımlarıyla**
+destekleniyor. QAIRT `--help` de bunu söylüyor:
+
+> `--restrict_quantization_steps` … *This argument is required for 16-bit
+> Matmul operations.* (16-bit için değer: `"-0x8000 0x7F7F"`)
+
+**Ama tek başına yetmiyor.** Bayrağı verince quantizer şu uyarıyı basıp
+sessizce yok sayıyordu:
+
+> `Restrict_quantization_steps is only supported for --param_quantizer =
+> symmetric or per channel/row quantization. Value will be ignored.`
+
+**Çözüm:** `--restrict_quantization_steps` ile birlikte **simetrik parametre
+kuantalayıcı** verilmeli. `scripts/03_convert_qnn.sh` artık bunu otomatik
+yapıyor: SDK `--help` çıktısını tarayıp mevcut bayrak adını seçiyor
+(`--param_quantizer_schema symmetric`, yoksa `--param_quantizer symmetric`);
+`PER_CHANNEL=1` ile per-channel da eklenebilir.
+
+Ayrıca kuantalayıcı argümanları `<graf>_q.args` imza dosyasına yazılıyor;
+argümanlar değişince `FORCE=1` gerekmeden yalnızca kuantizasyon + .bin
+yenileniyor (ONNX export ve kalibrasyon korunuyor).
+
+## UNET_MODE anahtarı
+
+Notebook 1. adımda (form) `UNET_MODE` seçilebilir:
+
+| değer | anlamı |
+|-------|--------|
+| `a16w8_restrict` (varsayılan) | referans reçete: 16-bit aktivasyon + restrict steps + simetrik param → v68'de 16-bit MatMul |
+| `a16w8` | restrict yok — yalnızca v73+ derlenir |
+| `a8w8` | tam 8-bit — her zaman derlenir, kalite daha düşük (yedek plan) |
+
+Derleme yine `expected >= 73` derse: `UNET_MODE=a8w8` ile paket üretilir ve
+cihazda **çalışan** ama düşük kaliteli bir model elde edilir; ya da
+`DSP_ARCH=v73` (Snapdragon 8 Gen 2+) hedeflenir.
+
+## Diğer sabit bulgular
+
+- Zip **kök dizinde** paketlenmeli (klasör içinde klasör → motor açılmıyor).
+- `vae_encoder.bin` **zorunlu** — motor img2img için varsayılan olarak yükler,
+  yoksa "Motor süreci kapandı (kod 1)".
+- Kalibrasyon tensör isimleri ONNX giriş isimleriyle birebir aynı olmalı:
+  `sample`, `timestamp`, `text_embedding`.
