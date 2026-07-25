@@ -88,9 +88,22 @@ if [ -f "$WORK/calib/$TAG/input_list.txt" ] && \
   echo "[*] Kalibrasyon listesi eski tensor isimleri iceriyor -> yenilenecek"
   rm -rf "$WORK/calib/$TAG"
 fi
+# FAST_TRIAL=1 : kalibrasyon ornegini asgariye indirir. Kuantizasyon suresi
+# ornek sayisiyla dogru orantili (16 ornek ~8 dk, 2 ornek ~1 dk) — boru hattini
+# dogrulamak icin ideal. NIHAI paket icin FAST_TRIAL=0 ile bir kez daha kosun.
+if [ "${FAST_TRIAL:-0}" = "1" ]; then
+  CALIB_PROMPTS="${CALIB_PROMPTS:-1}"; CALIB_STEPS="${CALIB_STEPS:-2}"
+  VAE_CALIB_N="${VAE_CALIB_N:-1}";     VAE_CALIB_STEPS="${VAE_CALIB_STEPS:-2}"
+  echo "[*] FAST_TRIAL=1 -> kalibrasyon kucultuldu (kalite dusuk, hizli dogrulama)"
+else
+  CALIB_PROMPTS="${CALIB_PROMPTS:-4}"; CALIB_STEPS="${CALIB_STEPS:-4}"
+  VAE_CALIB_N="${VAE_CALIB_N:-6}";     VAE_CALIB_STEPS="${VAE_CALIB_STEPS:-10}"
+fi
+
 # v2: timestep raw'lari INT_32 (eskiden float32 -> quantizer bit desenini
 # tamsayi okuyup zaman-gomme encoding'lerini bozuyordu)
-CALIB_VERSION="2"
+# Damgaya ornek sayilari da giriyor -> FAST_TRIAL degisince kalibrasyon yenilenir.
+CALIB_VERSION="2 n=${CALIB_PROMPTS} s=${CALIB_STEPS}"
 CSTAMP="$WORK/calib/$TAG/.calib_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/calib/$TAG/input_list.txt" ] \
    && [ "$(cat "$CSTAMP" 2>/dev/null)" = "$CALIB_VERSION" ]; then
@@ -99,7 +112,7 @@ else
   echo "### 3) UNet kalibrasyon verisi (v$CALIB_VERSION)"
   python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
       --resolution "$TAG" --output "$WORK/calib/$TAG" --mode real \
-      --num-samples "${CALIB_PROMPTS:-4}" --steps "${CALIB_STEPS:-4}"
+      --num-samples "$CALIB_PROMPTS" --steps "$CALIB_STEPS"
   echo "$CALIB_VERSION" > "$CSTAMP"
   # kalibrasyon degisti -> kuantize UNet DLC gecersiz
   rm -f "$WORK/qnn/build/model/model_q.dlc" "$WORK/qnn/build/model/model_q.args" \
@@ -136,13 +149,18 @@ echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
 
 # ---- 5) VAE decoder -> QNN (int8; HTP GroupNorm'u float'ta desteklemez) ----
 # 5a) VAE decoder kalibrasyonu (nihai olceksiz latent'ler)
-if [ "$FORCE" = 0 ] && [ -f "$WORK/calib_vae/$TAG/input_list.txt" ]; then
+VSTAMP="$WORK/calib_vae/$TAG/.calib_version"
+VCAL_V="n=${VAE_CALIB_N} s=${VAE_CALIB_STEPS}"
+if [ "$FORCE" = 0 ] && [ -f "$WORK/calib_vae/$TAG/input_list.txt" ] \
+   && [ "$(cat "$VSTAMP" 2>/dev/null)" = "$VCAL_V" ]; then
   echo "### 5a) VAE decoder kalibrasyon [ATLANDI]"
 else
   echo "### 5a) VAE decoder kalibrasyon verisi"
   python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
       --resolution "$TAG" --output "$WORK/calib_vae/$TAG" --target vae_decoder \
-      --num-samples "${VAE_CALIB_N:-6}" --steps "${VAE_CALIB_STEPS:-10}"
+      --num-samples "$VAE_CALIB_N" --steps "$VAE_CALIB_STEPS"
+  echo "$VCAL_V" > "$VSTAMP"
+  rm -f "$WORK/qnn/build/vae_decoder/vae_decoder_q.dlc" "$WORK/qnn/vae_decoder.bin"
 fi
 # 5b) VAE decoder -> QNN (int8, a8w8)
 echo "### 5b) VAE decoder -> QNN (a8w8)"
@@ -153,13 +171,17 @@ echo "### 5b) VAE decoder -> QNN (a8w8)"
 # Motor --no_img2img verilmedikce VAE encoder'i yuklemeye calisir; dosya yoksa
 # 'kod 1' ile coker. Bu yuzden encoder de uretilir (int8, goruntu kalibrasyonu).
 # 6a) VAE encoder kalibrasyonu (decode edilmis goruntuler)
-if [ "$FORCE" = 0 ] && [ -f "$WORK/calib_venc/$TAG/input_list.txt" ]; then
+ESTAMP="$WORK/calib_venc/$TAG/.calib_version"
+if [ "$FORCE" = 0 ] && [ -f "$WORK/calib_venc/$TAG/input_list.txt" ] \
+   && [ "$(cat "$ESTAMP" 2>/dev/null)" = "$VCAL_V" ]; then
   echo "### 6a) VAE encoder kalibrasyon [ATLANDI]"
 else
   echo "### 6a) VAE encoder kalibrasyon verisi"
   python3 "$SDIR/02_gen_quant_data.py" --pipeline "$WORK/pipeline" \
       --resolution "$TAG" --output "$WORK/calib_venc/$TAG" --target vae_encoder \
-      --num-samples "${VAE_CALIB_N:-6}" --steps "${VAE_CALIB_STEPS:-10}"
+      --num-samples "$VAE_CALIB_N" --steps "$VAE_CALIB_STEPS"
+  echo "$VCAL_V" > "$ESTAMP"
+  rm -f "$WORK/qnn/build/vae_encoder/vae_encoder_q.dlc" "$WORK/qnn/vae_encoder.bin"
 fi
 # 6b) VAE encoder -> QNN (int8, a8w8)
 echo "### 6b) VAE encoder -> QNN (a8w8)"

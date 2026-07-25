@@ -338,3 +338,40 @@ Notebook **2c** hücresi eklendi:
 
 `setup_qnn_sdk.py` artık `--cache-dir` alıyor ve SDK zaten açıksa hiç
 dokunmuyor.
+
+## MatMul aşıldı, sıra Conv'da (2026-07-25)
+
+`--param_quantizer_schema symmetric` + `--use_per_row_quantization` +
+`--restrict_quantization_steps -0x80 0x7F` ile **16-bit MatMul doğrulamayı
+geçti** — `expected >= 73` hatası artık yok. Yeni hata ilk konvolüsyonda:
+
+```
+<E> [4294967295] has incorrect Value 320, expected equal to 320.
+<E> Failed to validate op /unet/conv_in/Conv with error 0xc26
+```
+
+320 = `conv_in`'in çıkış kanal sayısı; mesaj kendi içinde çelişkili
+("320, expected equal to 320"). Bu, **per-channel** ağırlık kodlamasının
+Conv'da tutmadığının işareti. Per-channel zaten gereksizdi: restrict'in aradığı
+şema koşulunu `symmetric` + `per_row` sağlıyor, `--use_per_channel_quantization`
+yalnızca konvolüsyon ağırlıklarını değiştiriyor.
+
+→ `PER_CHANNEL` varsayılanı **kapalı**. Açmak için `PER_CHANNEL=1`.
+
+## FAST_TRIAL — deneme turlarını 8 dk'dan 1 dk'ya indirir
+
+Kuantizasyon süresi kalibrasyon örneği sayısıyla doğru orantılı (her örnek
+CPU'da ~28 sn). `FAST_TRIAL=1` örnek sayısını asgariye indiriyor
+(UNet 1 prompt × 2 adım, VAE 1 × 2):
+
+| mod | kalibrasyon | kuantizasyon |
+|-----|-------------|--------------|
+| normal | 16 örnek | ~8 dk |
+| `FAST_TRIAL=1` | 2 örnek | ~1 dk |
+
+Boru hattının **derlenip derlenmediğini** sınamak için kullanılır; üretilen
+model çalışır ama kalitesi düşüktür. Derleme başarılı olunca `FAST_TRIAL=0`
+ile bir kez daha koşulur. Notebook'ta `HIZLI_DENEME` kutusu.
+
+Kalibrasyon damgalarına örnek sayıları eklendi; mod değişince ilgili
+kalibrasyon ve kuantize DLC otomatik yenileniyor.

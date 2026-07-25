@@ -199,7 +199,11 @@ PY
     if [ "${PER_ROW:-1}" = "1" ] && has_qflag "--use_per_row_quantization"; then
       QARGS+=(--use_per_row_quantization)
     fi
-    if [ "${PER_CHANNEL:-1}" = "1" ] && has_qflag "--use_per_channel_quantization"; then
+    # PER_CHANNEL VARSAYILAN KAPALI: acikken HTP ilk Conv'u reddediyor —
+    #   "has incorrect Value 320, expected equal to 320" (/unet/conv_in/Conv)
+    # Zaten gereksiz: restrict'in aradigi sema kosulunu symmetric + per_row
+    # sagliyor; per_channel yalnizca konvolusyon agirliklarini degistiriyor.
+    if [ "${PER_CHANNEL:-0}" = "1" ] && has_qflag "--use_per_channel_quantization"; then
       QARGS+=(--use_per_channel_quantization)
     fi
   fi
