@@ -78,24 +78,36 @@ _arch="${DSP_ARCH:-}"
 if [ -z "$_arch" ]; then
   case "$TIER" in min) _arch=v68 ;; mid) _arch=v73 ;; high) _arch=v75 ;; esac
 fi
-case "$_arch" in
-  v68) SOC_DEF=SM8350 ;;   # Snapdragon 888 / 778G
-  v69) SOC_DEF=SM7450 ;;   # Snapdragon 7 Gen 1 / 8 Gen 1
-  v73) SOC_DEF=SM8550 ;;   # Snapdragon 8 Gen 2
-  v75) SOC_DEF=SM8650 ;;   # Snapdragon 8 Gen 3
-  v79) SOC_DEF=SM8750 ;;   # Snapdragon 8 Elite
-  *)   SOC_DEF="" ;;
-esac
+# SoC listesi SDK surumune gore degisir (2.39 "SM8350 is not supported" der),
+# bu yuzden SABIT KODLAMIYORUZ: desteklenen liste SDK'dan okunur ve hedef
+# mimariye uyan ilk SoC secilir.
+SOC_LIST="$OUT/soc_models.txt"
+if [ ! -s "$SOC_LIST" ]; then
+  "$QNN_PY" "$SCRIPT_DIR/list_soc_models.py" > "$SOC_LIST" 2>/dev/null || true
+fi
+soc_supported() { [ -s "$SOC_LIST" ] && cut -f1 "$SOC_LIST" | grep -qx -- "$1"; }
+
 TARGET_BACKEND="${TARGET_BACKEND:-HTP}"
-TARGET_SOC="${TARGET_SOC-$SOC_DEF}"   # TARGET_SOC="" ile kapatilabilir
+if [ -z "${TARGET_SOC+x}" ]; then     # kullanici belirtmediyse otomatik sec
+  TARGET_SOC="$("$QNN_PY" "$SCRIPT_DIR/list_soc_models.py" --arch "$_arch" 2>/dev/null | head -1)"
+fi
+if [ -n "$TARGET_SOC" ] && [ -s "$SOC_LIST" ] && ! soc_supported "$TARGET_SOC"; then
+  echo "  [backend-aware] UYARI: '$TARGET_SOC' bu SDK'da desteklenmiyor -> SoC atlaniyor"
+  echo "                  Desteklenen (ilk 20): $(cut -f1 "$SOC_LIST" | head -20 | tr '\n' ' ')"
+  TARGET_SOC=""
+fi
 
 BE_Q=(); BE_C=()
-if [ -n "$TARGET_SOC" ] && [ -n "$TARGET_BACKEND" ]; then
-  has_qflag "--target_backend" && \
-    BE_Q=(--target_backend "$TARGET_BACKEND" --target_soc_model "$TARGET_SOC")
-  has_cflag "--target_backend" && \
-    BE_C=(--target_backend "$TARGET_BACKEND" --target_soc_model "$TARGET_SOC")
-  echo "  [backend-aware] $TARGET_BACKEND / $TARGET_SOC (htp $_arch)"
+if [ -n "$TARGET_BACKEND" ]; then
+  BE_Q=(--target_backend "$TARGET_BACKEND")
+  BE_C=(--target_backend "$TARGET_BACKEND")
+  if [ -n "$TARGET_SOC" ]; then
+    BE_Q+=(--target_soc_model "$TARGET_SOC")
+    BE_C+=(--target_soc_model "$TARGET_SOC")
+  fi
+  has_qflag "--target_backend" || BE_Q=()
+  has_cflag "--target_backend" || BE_C=()
+  echo "  [backend-aware] $TARGET_BACKEND / ${TARGET_SOC:-(SoC yok)} (htp $_arch)"
 fi
 
 run_tool() {  # mode(py|native) tool args...
@@ -217,10 +229,40 @@ if [ -f "$OUT/${OUT_NAME}.bin" ] && [ "${FORCE:-0}" != "1" ] \
    && [ "$(cat "$B_SIG" 2>/dev/null)" = "$B_SIG_NEW" ]; then
   echo "  [context-bin] ATLANDI ($OUT/${OUT_NAME}.bin guncel)"
 else
-  echo "  [context-bin] $DLC_FOR_BIN -> $OUT/${OUT_NAME}.bin"
-  run_tool native qnn-context-binary-generator \
-    --dlc_path "$DLC_FOR_BIN" --backend "$HTP_BACKEND" --config_file "$HTP_CFG" \
-    --binary_file "$OUT_NAME" --output_dir "$OUT"
+  # Hedef mimaride uretim basarisiz olursa bir ust mimariyi dene. v68 binary'si
+  # v69 donanimda da calisir; tersi degil. Snapdragon 7 Gen 1 = v69 oldugundan
+  # v68 -> v69 yedeklemesi cihazda hala calisan bir model verir.
+  ARCH_TRY="${DSP_ARCH:-}"
+  [ -z "$ARCH_TRY" ] && ARCH_TRY="$_arch"
+  case "${BIN_ARCH_FALLBACK-auto}" in
+    auto) case "$ARCH_TRY" in v68) ARCH_CHAIN="v68 v69" ;; *) ARCH_CHAIN="$ARCH_TRY" ;; esac ;;
+    "")   ARCH_CHAIN="$ARCH_TRY" ;;
+    *)    ARCH_CHAIN="$ARCH_TRY ${BIN_ARCH_FALLBACK}" ;;
+  esac
+
+  bin_ok=0
+  for a in $ARCH_CHAIN; do
+    echo "  [context-bin] $DLC_FOR_BIN -> $OUT/${OUT_NAME}.bin (dsp_arch=$a)"
+    DSP_ARCH="$a" python3 "$SCRIPT_DIR/gen_htp_config.py" --tier "$TIER" \
+      --output "$HTP_CFG" >/dev/null
+    rc=0
+    "$BIN/qnn-context-binary-generator" \
+      --dlc_path "$DLC_FOR_BIN" --backend "$HTP_BACKEND" --config_file "$HTP_CFG" \
+      --binary_file "$OUT_NAME" --output_dir "$OUT" || rc=$?
+    if [ "$rc" -eq 0 ] && [ -f "$OUT/${OUT_NAME}.bin" ]; then
+      bin_ok=1
+      echo "$a" > "$OUT/${OUT_NAME}.arch"
+      [ "$a" != "$ARCH_TRY" ] && \
+        echo "  [context-bin] NOT: $ARCH_TRY basarisiz, $a ile uretildi"
+      break
+    fi
+    echo "  [context-bin] dsp_arch=$a BASARISIZ (kod $rc)"
+  done
+  if [ "$bin_ok" -ne 1 ]; then
+    echo ""
+    echo "!!! qnn-context-binary-generator tum mimarilerde basarisiz: $ARCH_CHAIN"
+    exit 1
+  fi
   echo "$B_SIG_NEW" > "$B_SIG"
 fi
 

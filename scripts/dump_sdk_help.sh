@@ -56,11 +56,8 @@ hdr "6) HTP backend: hangi op'lar 16-bit icin v73+ istiyor?"
 grep -rn -i "expected >= 73\|16.*matmul\|matmul.*16" \
      "$QNN_SDK_ROOT/docs" 2>/dev/null | head -20
 
-hdr "7) Desteklenen --target_backend / --target_soc_model degerleri"
-"$QNN_PY" "$BIN/qairt-quantizer" --input_dlc /dev/null --target_backend ZZZ 2>&1 \
-  | grep -iE "invalid|choice|supported|backend" | head -20 || true
-"$QNN_PY" "$BIN/qairt-quantizer" --input_dlc /dev/null --target_soc_model ZZZ 2>&1 \
-  | grep -iE "invalid|choice|supported|soc" | head -20 || true
+hdr "7) Desteklenen --target_soc_model degerleri (SDK'dan okunur)"
+"$QNN_PY" "$(dirname "${BASH_SOURCE[0]}")/list_soc_models.py" 2>&1 | head -80 || true
 
 echo
 echo ">>> BITTI. Bu ciktinin TAMAMINI paylas."

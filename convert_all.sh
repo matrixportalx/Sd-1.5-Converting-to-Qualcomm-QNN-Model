@@ -170,6 +170,9 @@ echo "### 6b) VAE encoder -> QNN (a8w8)"
 # Motor sample/text_embedding'e uint16, timestamp'e int32 yazar. Tipler
 # tutmuyorsa paketi telefona atmadan BURADA ogrenelim.
 echo "### 6c) unet.bin I/O tip dogrulamasi"
+if [ -f "$WORK/qnn/unet.arch" ]; then
+  echo "  [dsp_arch] unet.bin -> $(cat "$WORK/qnn/unet.arch") (referans: v68)"
+fi
 python3 "$SDIR/check_bin_io.py" --bin "$WORK/qnn/unet.bin" --expect unet \
   ${STRICT_IO:+--strict} || true
 

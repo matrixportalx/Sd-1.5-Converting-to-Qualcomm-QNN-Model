@@ -279,3 +279,30 @@ Her aşama artık argüman imzası tutuyor (`<graf>.args`, `<graf>_q.args`,
 çalışıyor; `FORCE=1` ile her şeyi baştan yapmak gerekmiyor. `convert_all.sh`
 içindeki "`.bin` varsa atla" kontrolleri kaldırıldı — bu kontroller yüzünden
 ayar değişse bile eski binary korunuyordu.
+
+## SoC listesi sabit kodlanamaz (2026-07-25)
+
+`--target_soc_model SM8350` denendi, QAIRT 2.39 reddetti:
+
+```
+ERROR - Encountered Error: SOC model SM8350 is not supported.
+  File ".../converters/common/backend_awareness.py", line 59, in get_instance
+    raise Exception("SOC model {} is not supported.".format(soc_model))
+```
+
+Desteklenen SoC listesi SDK sürümüne göre değişiyor (2.39 eski çipleri
+düşürmüş). Bu yüzden `scripts/list_soc_models.py` eklendi: listeyi
+`backend_awareness` modülünü introspect ederek (tutmazsa SDK kaynaklarını
+tarayarak) çalışma anında çıkarıyor ve hedef HTP mimarisine uyan
+**desteklenen** bir SoC seçiyor. Kullanıcının verdiği `TARGET_SOC` listede
+yoksa uyarı basılıp SoC atlanıyor — koşu ölmüyor, `--target_backend HTP`
+tek başına devam ediyor.
+
+## Otomatik mimari yedeklemesi
+
+Context binary üretimi hedef mimaride düşerse bir üst mimari deneniyor
+(`BIN_ARCH_FALLBACK`, varsayılan `auto` → v68 başarısızsa **v69**). Snapdragon
+7 Gen 1 zaten **v69** olduğundan v69 binary telefonda çalışır; yalnızca v68
+cihazlarda çalışmaz. Böylece tek koşuda sonuç alınıyor, 30 dk'lık tur
+tekrarlanmıyor. Kullanılan mimari `<ad>.arch` dosyasına yazılıp adım 6c'de
+raporlanıyor.
