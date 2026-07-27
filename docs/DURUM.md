@@ -706,3 +706,65 @@ Yan değişiklikler:
 
 v16'nın expand kancası ve ONNX emniyet ağı **yerinde bırakıldı** — artık
 tetiklenmesi gerekmiyor ama zararsız ve geri dönülürse hazır.
+
+## Kaynak koddan kesin cevap + gerçek çözüm (v18)
+
+v17 (ONNX'te float32 timestamp) da aynı hatayı verdi: io-config'deki
+`Desired: int32` sınırda yine INT_32 ürettiği için `time_proj/Unsqueeze` yine
+`INT_32 -> UFIXED_POINT_8` istedi. Tahmin etmeyi bırakıp local-dream'in
+kaynağına bakıldı — `app/src/main/cpp/src/QnnModel.hpp`, `executeUnetGraphs`:
+
+```cpp
+// latents  (inputs[0])
+uint16_t *latents_uint16 = (uint16_t*)QNN_TENSOR_GET_CLIENT_BUF(inputs[0]).data;
+datautil::floatToTfN(latents_uint16, latents,
+                     inputs[0].v1.quantizeParams.scaleOffsetEncoding.offset,
+                     inputs[0].v1.quantizeParams.scaleOffsetEncoding.scale, n);
+
+// timestep (inputs[1])
+int32_t *positionData = (int32_t*)QNN_TENSOR_GET_CLIENT_BUF(inputs[1]).data;
+positionData[0] = timestep;          // HAM int32 — kuantizasyon yok
+
+// text_embedding (inputs[2])  -> yine uint16 + floatToTfN
+```
+
+Kesinleşen kurallar:
+* `timestamp` graf sınırında **INT_32 olmak zorunda**. Tartışmaya kapalı.
+* `sample` ve `text_embedding` **16-bit olmak zorunda** (`uint16_t*` cast).
+  Ama scale/offset binary'den okunuyor → bizim hesapladığımız değerler geçerli.
+* Tensörler **isimle değil sıra ile** eşleşiyor (0=sample, 1=timestamp,
+  2=text_embedding) ve `numInputTensors != 3` ise reddediliyor.
+* Çıkış `convertToFloatInto` ile genel olarak okunuyor.
+
+Referans `_min` paketi (cyberrealistic_final_qnn2.28_min): clip_v2.mnn,
+pos_emb.bin, token_emb.bin, tokenizer.json, unet.bin (**893 MB** → ağırlıklar
+8-bit), vae_decoder.bin, vae_encoder.bin. `clip.mnn` (tam CLIP) pakette YOK.
+
+### Çözüm: time_proj → önceden hesaplanmış tablo + Gather
+
+HTP'nin hata mesajındaki kabul listesi, int32'yi kuantize dünyaya bağlayan
+hiçbir şekil işlemi tanımıyor. Ama **Gather** tanıyor: veri kuantize, **indeks
+int32**, çıktı kuantize — indeksler zaten tanımı gereği int32.
+
+`time_proj` yalnızca t'nin fonksiyonu ve t tamsayı (motor `static_cast<int>`
+yapıyor). Dolayısıyla 1000 timestep'in tamamı önceden hesaplanıp `[1000, 320]`
+sabit tabloya konabilir ve grafta `Gather(table, timestamp)` kalır. Sonuç
+**birebir aynı** — yaklaşıklık değil, sin/cos'un aynı değerleri.
+
+```python
+class TimeProjTable(torch.nn.Module):
+    def __init__(self, time_proj, num_train_timesteps=1000):
+        super().__init__()
+        ts = torch.arange(num_train_timesteps, dtype=torch.float32)
+        with torch.no_grad():
+            self.register_buffer("table", time_proj(ts).float())
+    def forward(self, timesteps):
+        return self.table.index_select(0, timesteps)   # -> ONNX Gather
+```
+
+Yan etki (olumlu): `timesteps.expand(1)` düğümü hayatta kalsa bile artık
+zararsız — çıktısı Gather indeksi olarak int32 kalıyor ve HTP `Reshape`
+INT_32→INT_32'yi destekliyor (hata mesajındaki OTHERS #3). v16'nın expand
+kancası ve ONNX emniyet ağı yine de yerinde bırakıldı.
+
+Kalibrasyon (v4) ve io-config timestamp'i tekrar int32'ye döndü.

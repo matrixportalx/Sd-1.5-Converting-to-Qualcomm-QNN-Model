@@ -100,10 +100,12 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v17: ONNX'te timestamp FLOAT32; INT_32'ye QNN graf sinirinda cevriliyor
-# (io-config Src=float32 / Desired=int32). int32 uzerindeki sekil islemleri
-# (Expand, Unsqueeze, Reshape) HTP'de gecersiz oldugu icin int32 yolu ONNX
-# tarafinda hic olusturulmuyor.
+# v18: time_proj onceden hesaplanmis [1000,320] tabloya cevrildi; grafta
+# yalnizca Gather kaldi. Motor timestamp'i ham int32 yazdigi icin sinir INT_32
+# olmak zorunda ve HTP'de int32'yi kuantize dunyaya baglayan TEK op Gather
+# (veri kuantize / indeks int32 / cikti kuantize). Sonuc birebir ayni.
+# v17: ONNX'te timestamp FLOAT32 denendi — io-config Desired=int32 sinirda
+# yine INT_32 urettigi icin Unsqueeze ayni hataya dustu. ELENDI.
 # v16: expand kancasi tip-bagimsiz + ONNX duzeyinde emniyet agi.
 # v15: UNet icindeki kimlik expand'i (timesteps.expand(1)) izleme sirasinda
 # eleniyor — HTP int32 girdi + uint8 cikti Reshape'ini kabul etmiyor.
@@ -112,7 +114,7 @@ fi
 # 16-bit sinir artik qairt-converter --config ile veriliyor).
 # v12: Clip bariyeri.
 # v11: UNet a16w8 + restrict steps. v10: referans recete (16-bit I/O, graf "model", v68).
-EXPORT_VERSION="17"
+EXPORT_VERSION="18"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
@@ -157,10 +159,9 @@ else
   VAE_CALIB_N="${VAE_CALIB_N:-6}";     VAE_CALIB_STEPS="${VAE_CALIB_STEPS:-10}"
 fi
 
-# v3: timestep raw'lari tekrar FLOAT32 — ONNX'te timestamp artik float32
-# (INT_32'ye QNN graf sinirinda cevriliyor). v2: INT_32 idi.
+# v4: timestep raw'lari yine INT_32 (v18 ile birlikte). v3: float32 idi.
 # Damgaya ornek sayilari da giriyor -> FAST_TRIAL degisince kalibrasyon yenilenir.
-CALIB_VERSION="3 n=${CALIB_PROMPTS} s=${CALIB_STEPS}"
+CALIB_VERSION="4 n=${CALIB_PROMPTS} s=${CALIB_STEPS}"
 CSTAMP="$WORK/calib/$TAG/.calib_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/calib/$TAG/input_list.txt" ] \
    && [ "$(cat "$CSTAMP" 2>/dev/null)" = "$CALIB_VERSION" ]; then

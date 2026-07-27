@@ -300,18 +300,46 @@ def export_unet(pipe, out_dir, opset, res):
                             encoder_hidden_states=encoder_hidden_states).sample
             return torch.clamp(out, -CLIP, CLIP) if USE_CLIP else out
 
+    # --- timestamp yolu: sinusoidal hesap yerine ONCEDEN HESAPLANMIS TABLO ---
+    #
+    # Motor (local-dream QnnModel.hpp) timestamp'i HAM INT32 yaziyor:
+    #     int32_t *positionData = ...inputs[1]...; positionData[0] = timestep;
+    # Yani graf sinirinda tip INT_32 olmak ZORUNDA — kuantize edilemez.
+    #
+    # Ama int32 bir tensor uzerindeki her sekil islemi (Expand, Unsqueeze,
+    # Reshape) HTP'de "in:INT_32 -> out:UFIXED_POINT_8" istiyor ve bu ikili
+    # kabul listesinde yok; int32 girdi ancak int32 cikti verebiliyor. Araya
+    # Cast koymak da ise yaramiyor, converter Cast'i katlayip atiyor.
+    #
+    # HTP'nin int32'yi kuantize dunyaya baglamak icin kabul ettigi tek yol
+    # Gather: veri kuantize, INDEKS int32, cikti kuantize. time_proj zaten
+    # yalnizca t'nin fonksiyonu ve t tamsayi (motor static_cast<int> yapiyor),
+    # o yuzden 1000 timestep'in tamami onceden hesaplanip [1000, 320] sabit
+    # tabloya konabilir. Sonuc BIREBIR ayni, sadece sin/cos grafta degil.
+    class TimeProjTable(torch.nn.Module):
+        def __init__(self, time_proj, num_train_timesteps=1000):
+            super().__init__()
+            ts = torch.arange(num_train_timesteps, dtype=torch.float32)
+            with torch.no_grad():
+                table = time_proj(ts).float()      # [T, 320]
+            self.register_buffer("table", table)
+
+        def forward(self, timesteps):
+            # index_select -> ONNX Gather(axis=0); indeks int32 kalir.
+            return self.table.index_select(0, timesteps)
+
+    # export_unet her cozunurluk icin bir kez cagriliyor -> tabloyu bir kez sar.
+    # (Sinif her cagrida yeniden tanimlandigi icin isinstance ise yaramaz.)
+    if type(unet.time_proj).__name__ != "TimeProjTable":
+        n_train = getattr(pipe.scheduler.config, "num_train_timesteps", 1000)
+        unet.time_proj = TimeProjTable(unet.time_proj, n_train)
+        print(f"    [time_proj] {n_train}x{unet.time_proj.table.shape[1]} tablo "
+              f"(sin/cos graftan cikti, Gather ile okunuyor)")
+
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)
-    # ONNX'te timestamp FLOAT32; QNN graf sinirinda INT_32'ye cevriliyor
-    # (gen_io_config.py: Src=float32, Desired=int32).
-    #
-    # Neden: int32 bir tensor uzerindeki HER sekil islemi (Expand, Unsqueeze,
-    # Reshape...) HTP'de "in:INT_32 -> out:UFIXED_POINT_8" istiyor ve bu ikili
-    # kabul listesinde yok. Araya Cast koymak ise yaramiyor — converter Cast'i
-    # katlayip atiyor ve dtype'i asagi tasiyor. Cozum: ONNX tarafinda int32
-    # yolunu hic olusturmamak; donusumu QNN sinirda yapsin. Motor yine int32
-    # yaziyor, referans binary de INT_32 gosteriyor — sinir tipi degismiyor.
-    timestep = torch.tensor([1], dtype=torch.float32)
+    # Referans binary ile ayni: timestamp = INT_32, dims [1].
+    timestep = torch.tensor([1], dtype=torch.int32)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
 

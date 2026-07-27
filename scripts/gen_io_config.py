@@ -108,7 +108,8 @@ def main() -> None:
         "",
         "Input Tensor Configuration:",
         _tensor_block("sample", args.dtype, 1, "Input", q_sample),
-        _tensor_block("timestamp", "int32", 2, "Input"),
+        # ONNX'te de int32: grafta Gather indeksi, kuantize edilmiyor.
+        _tensor_block("timestamp", "int32", 2, "Input", src_dtype="int32"),
         _tensor_block("text_embedding", args.dtype, 3, "Input", q_text),
         "",
         "Output Tensor Configuration:",

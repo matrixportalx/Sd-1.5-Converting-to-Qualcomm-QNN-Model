@@ -31,10 +31,11 @@ def _save_raw(arr: np.ndarray, path: str) -> None:
 
 
 def _save_timestep(t, path: str) -> None:
-    """ONNX'te 'timestamp' girisi FLOAT32 (INT_32'ye QNN graf sinirinda
-    cevriliyor — bkz. gen_io_config.py). Kalibrasyon raw'lari da bu yuzden
-    float32 olmali; quantizer girdileri float okuyup gerekirse kuantize eder."""
-    np.array([float(t)], dtype=np.float32).tofile(path)
+    """'timestamp' girisi INT_32 (motor ham int32 yaziyor; grafta Gather
+    indeksi olarak kullaniliyor). Kalibrasyon raw'lari da int32 olmali —
+    float32 yazarsak quantizer bit desenini tamsayi okur (1.0 -> 1065353216)
+    ve tablo disina tasar."""
+    np.array([int(round(float(t)))], dtype=np.int32).tofile(path)
 
 
 def gen_random(res: Resolution, hidden: int, n: int, out: str):
