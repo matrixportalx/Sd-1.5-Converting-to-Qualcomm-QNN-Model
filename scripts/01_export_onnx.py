@@ -207,6 +207,44 @@ def export_vae_encoder(pipe, out_dir, opset, res0):
 # --------------------------------------------------------------------------
 # UNet
 # --------------------------------------------------------------------------
+def _force_input_order(path, order):
+    """Graf girdilerini VERILEN SIRAYA sokar.
+
+    KRITIK: motor (QnnModel.hpp) tensorleri ISIMLE DEGIL INDEKSLE yaziyor:
+        inputs[0] -> latents (uint16, 4*64*64)
+        inputs[1] -> timestep (int32)
+        inputs[2] -> text_embedding (uint16, 77*768)
+    Sira bozulursa 59136 elemanlik metin gomme, 16384 elemanlik sample
+    tamponuna yazilir -> tampon tasar -> surec "kod 1" ile oluyor. Cihazda
+    gordugumuz "Could not free context" tam olarak buydu.
+
+    Referans binary'de sira: sample, timestamp, text_embedding. Bizde
+    onnxslim sadelestirmesinden sonra text_embedding basa geciyordu.
+    ONNX'te graph.input SIRASI QNN'in graphInputs sirasini belirler.
+
+    Agirliklar harici dosyalarda; load_external_data=False ile yalnizca
+    protobuf okunur (3.4 GB yeniden yazilmaz).
+    """
+    try:
+        import onnx
+    except Exception as e:
+        print(f"    [sira] atlandi ({type(e).__name__})")
+        return
+    m = onnx.load(path, load_external_data=False)
+    g = m.graph
+    cur = [i.name for i in g.input]
+    want = [n for n in order if n in cur] + [n for n in cur if n not in order]
+    if cur == want:
+        print(f"    [sira] girdi sirasi zaten dogru: {cur}")
+        return
+    by_name = {i.name: i for i in g.input}
+    new = [by_name[n] for n in want]
+    del g.input[:]
+    g.input.extend(new)
+    onnx.save(m, path)
+    print(f"    [sira] girdi sirasi duzeltildi: {cur} -> {want}")
+
+
 def _strip_timestamp_expand(path):
     """EMNIYET AGI: izleme kancasi tutmazsa, 'timestamp' girisinden beslenen
     KIMLIK Expand dugumunu ONNX duzeyinde kaldirir.
@@ -392,6 +430,10 @@ def export_unet(pipe, out_dir, opset, res):
         torch.Tensor.expand = _orig_expand
     print(f"    [expand] {_n_skipped[0]} kimlik expand elendi")
     _strip_timestamp_expand(path)
+    # Motorun indeks sirasi: 0=sample, 1=timestamp, 2=text_embedding.
+    # (Araclar bu sirayi degistirebiliyor; olculup duzeltilmesi adim 4b'de —
+    # bkz. fix_input_order.py. Burada ONNX tarafini sabitliyoruz.)
+    _force_input_order(path, ["sample", "timestamp", "text_embedding"])
 
 
 def main() -> None:

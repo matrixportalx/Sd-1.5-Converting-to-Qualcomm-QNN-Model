@@ -85,6 +85,15 @@ def main() -> None:
     for g in graphs_of(meta):
         gi = g.get("info", g)
         print(f"    graf: {gi.get('graphName')}")
+        # SIRA da tipler kadar kritik: motor tensorleri isimle degil INDEKSLE
+        # yaziyor (QnnModel.hpp). Sira bozuksa 59136 elemanlik text_embedding
+        # 16384 elemanlik sample tamponuna yazilir -> tampon tasar -> kod 1.
+        if args.expect == "unet":
+            got_order = [n for n, _, _ in tensors(gi, "graphInputs")]
+            want_order = list(EXPECT["unet"]["inputs"])
+            if got_order != want_order:
+                problems.append(
+                    f"GIRDI SIRASI: {got_order} (beklenen {want_order})")
         for key, label in (("graphInputs", "girdi"), ("graphOutputs", "cikti")):
             for name, dtype, dims in tensors(gi, key):
                 print(f"      {label:5s} {name:16s} {dtype}  {dims}")

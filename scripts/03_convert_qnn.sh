@@ -49,7 +49,7 @@ QNN_PY="${QNN_PYTHON:-}"
 WORK="$OUT/build/$GRAPH"
 mkdir -p "$WORK" "$OUT"
 HTP_CFG="$WORK/htp_${TIER}.json"
-python3 "$SCRIPT_DIR/gen_htp_config.py" --tier "$TIER" --output "$HTP_CFG"
+python3 "$SCRIPT_DIR/gen_htp_config.py" --tier "$TIER" --output "$HTP_CFG" --graph "$GRAPH"
 HTP_BACKEND="$LIB/libQnnHtp.so"
 
 _QHELP=""

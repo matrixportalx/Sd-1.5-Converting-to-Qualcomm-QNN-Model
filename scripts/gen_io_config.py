@@ -87,6 +87,10 @@ def main() -> None:
     ap.add_argument("--output", required=True)
     ap.add_argument("--dtype", default="uint16",
                     help="sinir tensorlerinin istenen tipi (uint16/int16)")
+    ap.add_argument("--onnx", default="",
+                    help="ONNX yolu. Verilirse girdi SIRASI buradan okunur — "
+                         "YAML ile ONNX arasinda tek kaynak olsun diye "
+                         "(bkz. fix_input_order.py).")
     args = ap.parse_args()
 
     r_sample = _range_from_raws(args.calib, "sample") or (-6.0, 6.0)
@@ -97,20 +101,41 @@ def main() -> None:
     q_text = _scale_offset(*r_text)
     q_out = _scale_offset(*r_out)
 
+    # Girdi bloklari ONNX'teki SIRAYLA yazilir. Sebep: motor tensorleri isimle
+    # degil indeksle yaziyor; sirayi tek bir yerden yonetmek icin ONNX'i kaynak
+    # kabul ediyoruz (fix_input_order.py ONNX'i duzeltince YAML de duzelir).
+    order = ["sample", "timestamp", "text_embedding"]
+    if args.onnx and os.path.exists(args.onnx):
+        try:
+            import onnx
+            m = onnx.load(args.onnx, load_external_data=False)
+            found = [i.name for i in m.graph.input]
+            if set(found) == set(order):
+                order = found
+        except Exception as e:
+            print(f"    [io-config] ONNX sirasi okunamadi ({type(e).__name__})")
+    spec = {
+        "sample":         (args.dtype, q_sample, "float32"),
+        "timestamp":      ("int32",    None,     "int32"),
+        "text_embedding": (args.dtype, q_text,   "float32"),
+    }
+
     body = [
         "# qairt-converter --config  (sema: --dump_config_template)",
         "# 16-bit GRAF SINIRI + 8-bit ic hesap. Motorun bekledigi tipler:",
         "#   sample / text_embedding / output -> uint16 (UFIXED_POINT_16)",
-        "#   timestamp                        -> int32 (ONNX'te float32)",
+        "#   timestamp                        -> int32 (grafta Gather indeksi)",
+        f"# Girdi sirasi: {', '.join(order)}",
         "Converted Graph:",
         "  - Input Tensors:",
         "  - Output Tensors:",
         "",
         "Input Tensor Configuration:",
-        _tensor_block("sample", args.dtype, 1, "Input", q_sample),
-        # ONNX'te de int32: grafta Gather indeksi, kuantize edilmiyor.
-        _tensor_block("timestamp", "int32", 2, "Input", src_dtype="int32"),
-        _tensor_block("text_embedding", args.dtype, 3, "Input", q_text),
+    ]
+    for i, name in enumerate(order, 1):
+        dt, q, src = spec[name]
+        body.append(_tensor_block(name, dt, i, "Input", q, src_dtype=src))
+    body += [
         "",
         "Output Tensor Configuration:",
         _tensor_block("output", args.dtype, 1, "Output", q_out),

@@ -917,3 +917,59 @@ varsayılana bırakıyor. v68 varsayılanı 8 MB olabilir; Snapdragon 7 Gen 1'in
 VTCM'si daha küçükse bağlam cihazda kurulamaz — ve bu, "8 Gen 1 için üretilmiş
 model de aynı hatayı veriyor" gözlemini birebir açıklar. Ama artık tahminle
 değil, referansın ne yazdığını okuyarak karar vereceğiz.
+
+## ASIL SEBEP BULUNDU: girdi sırası ters (6d karşılaştırması)
+
+Referans `QteaMix_qnn2.28_min` indirilip metadata karşılaştırıldı. 63 alan aynı,
+12 alan farklı — ve farkların çoğu tek bir şeyden:
+
+```
+info.graphs[0].info.graphInputs[0].info.name
+    referans: 'sample'          [1,4,64,64]  rank 4
+    bizim   : 'text_embedding'  [1,77,768]   rank 3
+info.graphs[0].info.graphInputs[2].info.name
+    referans: 'text_embedding'
+    bizim   : 'sample'
+```
+
+Motor (`QnnModel.hpp::executeUnetGraphs`) tensörleri **isimle değil indeksle**
+yazıyor:
+
+```cpp
+inputs[0] -> latents         16384 uint16
+inputs[1] -> timestep        int32
+inputs[2] -> text_embedding  59136 uint16
+```
+
+Bizim binary'de `inputs[2]` = `sample` (16384 elemanlık tampon). Motor oraya
+59136 eleman yazıyor → **tampon taşması** → süreç `kod 1` ile ölüyor.
+"Could not free context" tam olarak bunun kuyruğu.
+
+Bu, tüm gizemi açıklıyor: düz `a8w8` paketi, 2.40 paketi ve 2.39 paketi hep
+aynı hatayı verdi çünkü **üçünde de sıra tersti**. Kuantizasyonla, SDK
+sürümüyle, VTCM ile ilgisi yokmuş. (VTCM şüphesi de çürüdü — o alanlar birebir
+aynı.)
+
+İkinci gerçek fark: `optimizationLevel` referansta **3**, bizde **0**.
+
+Kalan farklar zararsız ve sürümden geliyor: `backendApiVersion` 5.28→5.39,
+`contextBlobVersion` 3.2.0→3.3.3, `coreApiVersion` 2.21→2.29, ayrıca 2.39'un
+eklediği `graphBlobInfoV2` / `platformInfo` alanları.
+
+### Düzeltme
+
+ONNX'te sıra DOĞRU (`sample, timestamp, text_embedding`) olmasına rağmen binary
+ters çıkıyor — yani sırayı qairt araçları değiştiriyor. Hangi kurala göre
+olduğunu tahmin etmek yerine **ölçüp tersini uyguluyoruz**:
+
+* `scripts/fix_input_order.py` — binary'nin gerçek sırasını okur, ONNX sırasıyla
+  karşılaştırıp araçların uyguladığı pozisyon permütasyonunu (ölçülen: `[2,1,0]`)
+  çıkarır, tersini ONNX'e uygular ve çıkış kodu 2 ile "yeniden üret" der.
+* `convert_all.sh` adım **4b** — kodu 2 alırsa io-config'i yeniler ve UNet'i
+  `FORCE=1` ile bir kez yeniden üretir, sonra tekrar doğrular. Düzelmezse
+  koşuyu hata ile durdurur (bozuk paket üretilmez).
+* `gen_io_config.py --onnx` — YAML'daki girdi sırası artık ONNX'ten okunuyor,
+  tek kaynak.
+* `check_bin_io.py` — adım 6c artık tiplerin yanı sıra **sırayı** da denetliyor.
+* `gen_htp_config.py --graph` — `graphs[{graph_names, O}]` bloğu eklendi,
+  `O=3` (referansla aynı).

@@ -246,7 +246,8 @@ case "$UNET_MODE" in
     echo "  [io-config] sinir tensorleri icin YAML uretiliyor"
     python3 "$SDIR/gen_io_config.py" --calib "$WORK/calib/$TAG" \
         --output "$WORK/onnx/unet_io_config.yaml" \
-        --dtype "${IO_DTYPE:-uint16}"
+        --dtype "${IO_DTYPE:-uint16}" \
+        --onnx "$WORK/onnx/unet_${TAG}.onnx"
     U_IO_CONFIG="$(cd "$WORK/onnx" && pwd)/unet_io_config.yaml"
     ;;
   a8w8_io16)
@@ -271,6 +272,45 @@ disk_report "adim 4 oncesi"
     IO_CONFIG="$U_IO_CONFIG" \
     ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
     model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
+
+# ---- 4b) GIRDI SIRASI dogrulamasi (kritik) ---------------------------------
+# Motor tensorleri ISIMLE DEGIL INDEKSLE yaziyor (QnnModel.hpp):
+#   inputs[0]=latents(uint16) inputs[1]=timestep(int32) inputs[2]=text_embedding
+# Referans binary sirasi: sample, timestamp, text_embedding.
+# Bizimki TERS cikiyordu (text_embedding, timestamp, sample) -> 59136 elemanlik
+# gomme 16384 elemanlik tampona yaziliyor, tampon tasiyor, surec "kod 1" ile
+# oluyordu. ONNX'te sira dogru oldugu icin sirayi araclar degistiriyor; hangi
+# kurala gore oldugunu tahmin etmiyoruz, OLCUP tersini uyguluyoruz.
+if [ "${CHECK_INPUT_ORDER:-1}" = "1" ] && [ -f "$WORK/qnn/unet.bin" ]; then
+  echo "### 4b) UNet girdi sirasi"
+  set +e
+  python3 "$SDIR/fix_input_order.py" --onnx "$WORK/onnx/unet_${TAG}.onnx" \
+      --bin "$WORK/qnn/unet.bin"
+  _ord_rc=$?
+  set -e
+  if [ "$_ord_rc" = "2" ]; then
+    echo "  [sira] UNet yeniden uretiliyor (duzeltilmis ONNX ile)"
+    # io-config sirayi ONNX'ten okuyor -> ONNX degistiyse YAML de yenilenmeli.
+    if [ -n "$U_IO_CONFIG" ]; then
+      python3 "$SDIR/gen_io_config.py" --calib "$WORK/calib/$TAG" \
+          --output "$WORK/onnx/unet_io_config.yaml" \
+          --dtype "${IO_DTYPE:-uint16}" \
+          --onnx "$WORK/onnx/unet_${TAG}.onnx"
+    fi
+    ( cd "$SDIR" && FORCE=1 ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
+        RESTRICT_STEPS="$U_RESTRICT" QUANT_OVERRIDES="$U_OVERRIDES" \
+        IO_CONFIG="$U_IO_CONFIG" \
+        ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
+        model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
+    echo "  [sira] yeniden uretim sonrasi kontrol:"
+    python3 "$SDIR/fix_input_order.py" --onnx "$WORK/onnx/unet_${TAG}.onnx" \
+        --bin "$WORK/qnn/unet.bin" \
+      || { echo "!!! GIRDI SIRASI DUZELTILEMEDI — paket cihazda yuklenmez."; exit 1; }
+  elif [ "$_ord_rc" != "0" ]; then
+    echo "  [sira] kontrol yapilamadi (kod $_ord_rc)"
+  fi
+fi
+
 # UNet'in harici agirlik kopyasi (~3.4 GB) VAE adimlarindan once bosaltilir.
 rm -rf "${QAIRT_TMP_DIR:?}"/* 2>/dev/null || true
 disk_report "adim 4 sonrasi"
