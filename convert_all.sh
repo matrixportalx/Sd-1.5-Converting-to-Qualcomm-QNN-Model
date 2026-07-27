@@ -87,6 +87,12 @@ if [ "${PROBE_ORDER:-0}" = "1" ]; then
   "${QNN_PYTHON:-python3}" "$SDIR/probe_input_order.py" || \
     echo "  [!] yoklama tamamlanamadi"
   echo
+  # PROBE_ONLY=1: yoklamadan sonra dur. Sira sorunu cozulmeden tam donusum
+  # zaten basarisiz bitiyor; 4 dakikayi bosa harcamayalim.
+  if [ "${PROBE_ONLY:-0}" = "1" ]; then
+    echo "[*] PROBE_ONLY=1 -> yoklama sonrasi duruldu (donusum calistirilmadi)"
+    exit 0
+  fi
 fi
 
 # Checkpoint gercekten var mi? Yoksa diffusers dosya yolunu HF repo adresi

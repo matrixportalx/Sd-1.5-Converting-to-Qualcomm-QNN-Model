@@ -1060,3 +1060,26 @@ Değilse eski yola geçeriz.
 
 `PROBE_ORDER=1` ile adım 0a olarak koşuyor. `COMPARE_REF` ve `PROBE_SDK`
 kapatıldı (işlerini gördüler; 2.28 indirilemiyor, en eski erişilebilir 2.32).
+
+## Yoklama v1 bilgi vermedi — oyuncak modeller float'tı
+
+Dört senaryonun dördü de aynı yerde öldü, dolayısıyla sıra hakkında hiçbir şey
+öğrenilemedi:
+
+```
+graph_prepare.cc:219::ERROR:could not create op: q::Gather
+  Input 0: op=[ConvLayer.opt.bias_to_vtcm@Ff.ff.] output0=[...PlainFloat_TCM...]
+  Input 2: op=[flat_from_vtcm@fi.Fi.]             output0=[...Int32...]
+```
+
+Sebep bende: oyuncak modelleri **kuantize etmedim**. HTP, verisi float olan bir
+`Gather`'ı kabul etmiyor; gerçek UNet'te tablo 8-bit kuantize olduğu için orada
+sorun çıkmıyor. Yoklama artık gerçek hattı birebir taklit ediyor:
+`ONNX → qairt-converter → qairt-quantizer (a8w8, 2 örnek) → context binary`.
+
+Ayrıca:
+* Yoklama başarısız olursa `qnn-onnx-converter` ve `qnn-model-lib-generator`
+  arayüzleri (`--help`) aynı koşuda dökülüyor — yedek plan için bir tur daha
+  kaybetmeyelim.
+* `PROBE_ONLY=1`: yoklamadan sonra koşu duruyor. Sıra çözülmeden tam dönüşüm
+  zaten `4b`'de başarısız bitiyor; 4 dakikayı boşa harcamanın anlamı yok.

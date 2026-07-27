@@ -103,8 +103,30 @@ def build_onnx(path, decl_order, names, consume_order):
     onnx.save(m, path)
 
 
-def convert_and_read_order(onnx_path, work):
-    """ONNX -> DLC -> context binary -> graphInputs sirasi."""
+def _write_calib(work, names):
+    """Kucuk kalibrasyon seti. Graf KUANTIZE olmali: HTP float Gather'i kabul
+    etmiyor (ilk yoklamada dordu de burada oldu), gercek UNet ise 8-bit."""
+    lines = []
+    for i in range(2):
+        toks = []
+        for role, nm in (("sample", names["sample"]),
+                         ("timestamp", names["timestamp"]),
+                         ("text_embedding", names["text_embedding"])):
+            pth = os.path.join(work, f"{role}_{i}.raw")
+            if role == "timestamp":
+                np.array([i * 100], dtype=np.int32).tofile(pth)
+            else:
+                np.random.randn(*SHAPES[role]).astype(np.float32).tofile(pth)
+            toks.append(f"{nm}:={pth}")
+        lines.append(" ".join(toks))
+    lst = os.path.join(work, "input_list.txt")
+    with open(lst, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return lst
+
+
+def convert_and_read_order(onnx_path, work, names):
+    """ONNX -> DLC -> kuantize DLC -> context binary -> graphInputs sirasi."""
     dlc = os.path.join(work, "probe.dlc")
     r = subprocess.run([PY, os.path.join(BIN, "qairt-converter"),
                         "--input_network", onnx_path, "--output_path", dlc,
@@ -112,6 +134,19 @@ def convert_and_read_order(onnx_path, work):
                        env=_env(), capture_output=True, text=True)
     if not os.path.exists(dlc):
         return None, f"converter basarisiz:\n{r.stdout[-1500:]}{r.stderr[-1500:]}"
+
+    qdlc = os.path.join(work, "probe_q.dlc")
+    lst = _write_calib(work, names)
+    r = subprocess.run([PY, os.path.join(BIN, "qairt-quantizer"),
+                        "--input_dlc", dlc, "--input_list", lst,
+                        "--act_bitwidth", "8", "--weights_bitwidth", "8",
+                        "--bias_bitwidth", "32", "--target_backend", "HTP",
+                        "--output_dlc", qdlc],
+                       env=_env(), capture_output=True, text=True)
+    if os.path.exists(qdlc):
+        dlc = qdlc
+    else:
+        return None, f"quantizer basarisiz:\n{r.stdout[-1500:]}{r.stderr[-1500:]}"
 
     cfg = os.path.join(work, "htp.json")
     ext = os.path.join(work, "htp_ext.json")
@@ -187,7 +222,7 @@ def main() -> None:
         os.makedirs(work, exist_ok=True)
         onnx_path = os.path.join(work, "probe.onnx")
         build_onnx(onnx_path, decl, names, consume)
-        order, err = convert_and_read_order(onnx_path, work)
+        order, err = convert_and_read_order(onnx_path, work, names)
         rev = {v: k for k, v in names.items()}
         roles = [rev.get(n, n) for n in order] if order else None
         print(f"--- {label}")
@@ -217,6 +252,21 @@ def main() -> None:
         print("(referans paketin uretildigi eski yol; girdi sirasi model.cpp'deki")
         print(" bildirim sirasidir)")
     print("=" * 70)
+
+    if not ok:
+        # Yedek plan icin gereken arayuzleri simdi dokuyoruz ki bir tur daha
+        # kaybetmeyelim: eski qnn-onnx-converter -> qnn-model-lib-generator yolu.
+        for tool in ("qnn-onnx-converter", "qnn-model-lib-generator"):
+            path = os.path.join(BIN, tool)
+            if not os.path.exists(path):
+                print(f"\n--- {tool}: YOK")
+                continue
+            print(f"\n--- {tool} --help (yedek plan icin) ---")
+            r = subprocess.run([PY, path, "--help"], env=_env(),
+                               capture_output=True, text=True)
+            txt = (r.stdout or "") + (r.stderr or "")
+            for line in txt.splitlines()[:120]:
+                print("    " + line)
 
     if not args.keep and not args.workdir:
         shutil.rmtree(root, ignore_errors=True)
