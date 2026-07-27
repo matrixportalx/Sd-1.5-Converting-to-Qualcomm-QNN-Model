@@ -1222,3 +1222,17 @@ Uyarı: 2.28'de `qairt-converter` ve `qnn-context-binary-generator --dlc_path`
 olmayabilir. O durumda bizim adım 4 hattımız çalışmaz ve resmi akışa
 (`qnn-onnx-converter → qnn-model-lib-generator → --model <.so>`) geçeceğiz.
 Bu koşuda `FETCH_ONLY=1` olduğu için dönüşüm zaten çalışmıyor.
+
+## Yeni çalışma zamanında hücre sırası
+
+`NameError: name 'DSP_ARCH' is not defined` geldi. Sebep: not defterinin en
+üstündeki **"Dönüşüm ayarları"** form hücresi (cell 2) çalıştırılmamış. O hücre
+`SAFETENSORS_URL`, `MODEL_NAME`, `TIER`, `RESOLUTIONS` ve `DSP_ARCH`,
+`UNET_MODE`, `REBUILD_BIN`, `TARGET_SOC`, `QUANT_EXTRA` değişkenlerini
+tanımlıyor; 6. adım hücresi (cell 21) bunları `os.environ`'a yazıyor. Çalışma
+zamanı sıfırlanınca değişkenler kayboluyor.
+
+**Doğru sıra:** `[Dönüşüm ayarları] → 2 → 4 → 5 → 6`
+
+Seçilen değerler önemsiz — `config.env` hepsini eziyor. `convert_all.sh`'in
+checkpoint uyarısı artık bu sırayı ve hatayı açıkça yazıyor.

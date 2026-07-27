@@ -122,7 +122,11 @@ if [ ! -f "$WORK/pipeline/model_index.json" ] && [ ! -s "$CKPT" ]; then
   echo " Calisma zamani sifirlandiginda work/ silinir. Once NOT DEFTERININ"
   echo " 5. ADIMINI (Modeli indir) calistirin, sonra 6. adima donun."
   echo
-  echo " Sifirdan bir oturumda dogru sira:  2 -> 4 -> 5 -> 6"
+  echo " Sifirdan bir oturumda dogru sira:"
+  echo "   [Donusum ayarlari hucresi] -> 2 -> 4 -> 5 -> 6"
+  echo " (Ayarlar hucresi en usttedir; SAFETENSORS_URL/MODEL_NAME orada."
+  echo "  Calistirilmazsa 6. adim 'NameError: DSP_ARCH is not defined' verir."
+  echo "  Sectiginiz degerler onemsiz — config.env hepsini eziyor.)"
   echo "########################################################################"
   exit 1
 fi
