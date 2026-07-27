@@ -1299,3 +1299,48 @@ ile 2 örnek kullanmamız kaliteyi düşürüyor — boru hattı çalışınca a
 ### 5. Kendi MNN dönüştürücülerini taşıyorlar
 
 Zip'te `MNNConvert` ikili dosyası var; CLIP dönüşümü onunla yapılıyor.
+
+## RESMİ TARİF ÇÖZÜLDÜ — `convert_unet.sh`
+
+```bash
+qnn-onnx-converter -n --input_network ./unet/model.onnx \
+    --preserve_io layout --input_list ./input_list_unet.txt \
+    --use_per_channel_quantization --bias_bitwidth 32 --act_bitwidth 16
+qnn-model-lib-generator -c ./unet/model.cpp -b ./unet/model.bin \
+    -t x86_64-linux-clang -o ./qnn_unet
+qnn-context-binary-generator --model ./qnn_unet/x86_64-linux-clang/libmodel.so \
+    --backend $QNN_SDK_ROOT/lib/x86_64-linux-clang/libQnnHtp.so \
+    --output_dir output/qnn_models_min --binary_file unet \
+    --config_file ./htp_backend_min.json
+```
+
+Bizim yaptığımız her yanlışın karşılığı burada:
+
+| bizim | resmi | sonuç |
+|---|---|---|
+| `qairt-converter` → DLC → `--dlc_path` | `qnn-onnx-converter` → `model.cpp` → `.so` → `--model` | **girdi sırası** ancak `.so` yolunda kontrol edilebiliyor (model.cpp'deki bildirim sırası) |
+| `--act_bitwidth 8` + `--config` io16 hilesi | **`--act_bitwidth 16`** | uint16 sınır doğal olarak oluşuyor; io-config'e hiç gerek yok |
+| `PER_CHANNEL=0` (Conv hatası yüzünden kapattık) | **`--use_per_channel_quantization`** | o hata 2.39'a ve bizim ONNX'imize özgüydü |
+| stok diffusers | **`redefined_modules/`** | ONNX'i HTP'ye uygun yapan şey bayraklar değil, modelin yeniden yazılması (CrossAttention Linear→Conv, MHA→SHA) |
+| VTCM ayarsız | **`"vtcm_mb": 2`** | Snapdragon 7 Gen 1'in VTCM'si küçük; ilk şüphem doğruymuş |
+| — | `perf_profile: burst`, `rpc_control_latency: 100`, `O: 3.0`, `hvx_threads: 0` | |
+
+`a16w8`'i "v68'de 16-bit LayerNorm yok" diye elemiştik — o hata **qairt-converter
+2.39 + bizim ONNX'imize** özgüymüş. Resmi hat 2.28 + yeniden yazılmış modüllerle
+tam 16-bit aktivasyon kullanıyor ve çalışıyor.
+
+### Yeni hat: `scripts/06_official_pipeline.sh`
+
+`USE_OFFICIAL=1` ile devreye giriyor ve resmi scriptleri Colab'da koşuyor:
+
+1. `uv venv -p 3.10 && uv sync` — resmi `pyproject.toml` (diffusers 0.31.0,
+   transformers 4.46.1, numpy 1.26.4, onnx, pandas, pyyaml). Bu venv aynı
+   zamanda QNN 2.28 araçlarının Python'u oluyor.
+2. `prepare_data.py` → `gen_quant_data.py` → `export_onnx.py`
+3. `CALIB_LIMIT` ile kalibrasyon listesi kırpılıyor (resmi 400; ilk denemede
+   24 ile boru hattı doğrulanır, sonra 0 = tam kalite)
+4. `scripts/convert_all.sh --min_soc min` (SDK yolu bizimkine `sed`'lenir)
+5. Çıktı `output/qnn_models_min/` → `dist/<ad>_qnn2.28_min.zip` (dosyalar zip
+   kökünde; referans paketler böyle)
+
+Kendi hattımız (adım 0-7) yerinde duruyor; `USE_OFFICIAL=0` ile geri dönülür.

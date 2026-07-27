@@ -93,6 +93,21 @@ if [ "${FETCH_OFFICIAL:-0}" = "1" ]; then
   fi
 fi
 
+# ---- RESMI HAT (USE_OFFICIAL=1) --------------------------------------------
+# Local Dream'in kendi npuconvertv2 scriptleriyle donustur. Kendi hattimizin
+# cihazda yuklenmeyen paket uretmesinin sebepleri resmi scriptlerde gorulunce
+# anlasildi (farkli arac zinciri, --act_bitwidth 16, redefined_modules,
+# vtcm_mb=2). Ayrintili gerekce: scripts/06_official_pipeline.sh basligi.
+if [ "${USE_OFFICIAL:-0}" = "1" ]; then
+  if [ ! -d "$WORK/_official/npuconvertv2" ]; then
+    echo "[*] resmi scriptler yok -> indiriliyor"
+    python3 "$SDIR/fetch_official_scripts.py" --dest "$WORK/_official" \
+        ${OFFICIAL_SCRIPTS_URL:+--url "$OFFICIAL_SCRIPTS_URL"} --no-dump
+  fi
+  bash "$SDIR/06_official_pipeline.sh" "$CKPT" "$NAME" "$WORK" "$TIER"
+  exit $?
+fi
+
 # ---- Girdi sirasi kurali yoklamasi (PROBE_ORDER=1) -------------------------
 # Gercek UNet ile her deneme ~4 dk. Ayni girdi imzasina sahip OYUNCAK modellerle
 # saniyeler icinde hangi kuralin sirayi belirledigini olcuyoruz. Olculenler:
