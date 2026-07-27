@@ -326,6 +326,19 @@ fi
 python3 "$SDIR/check_bin_io.py" --bin "$WORK/qnn/unet.bin" --expect unet \
   ${STRICT_IO:+--strict} || true
 
+# ---- 6d) referans binary ile karsilastirma (COMPARE_REF=1) -----------------
+# Cihaz "kod 1 / Could not free context" diyor ama bu logun SON satiri; gercek
+# hata gorunmuyor. Tipler dogru, SDK 2.40->2.39 de degistirmedi. Bu adim
+# CALISAN bir referans paketi indirip metadata'yi alan alan karsilastirir
+# (dsp_arch, VTCM, optimizasyon seviyesi, graf adi, spill-fill, tensor sirasi).
+if [ "${COMPARE_REF:-0}" = "1" ]; then
+  echo "### 6d) referans unet.bin ile karsilastirma"
+  python3 "$SDIR/compare_ref_bin.py" --ours "$WORK/qnn/unet.bin" \
+      --cache "$WORK/_refcmp" ${REF_ZIP:+--ref-zip "$REF_ZIP"} \
+      ${KEEP_REF:+--keep} || echo "  [!] karsilastirma yapilamadi"
+  disk_report "adim 6d sonrasi"
+fi
+
 # ---- 7) paketle -----------------------------------------------------------
 echo "### 7) paketle"
 python3 "$SDIR/05_package.py" --name "$NAME" --tier "$TIER" --qnn-version "$QNN_VERSION" \

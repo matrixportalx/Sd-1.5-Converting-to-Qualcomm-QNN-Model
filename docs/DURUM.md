@@ -880,3 +880,40 @@ Yapılanlar:
 
 **Genel kural:** dönüşümde kullanılacak QAIRT sürümü, uygulamanın derlendiği
 QAIRT sürümüne eşit ya da ondan eski olmalı.
+
+## 2.39 ile de yüklenmedi — sürüm tek başına sebep değilmiş
+
+`CyberRealistic_qnn2.39_min` üretildi (yani tarif 2.39'da da sorunsuz derleniyor
+— 2.40'a geçmemize aslında gerek yokmuş) ama cihazda **birebir aynı** hata:
+
+```
+[WARNING] QnnDsp <W> This META does not have Alloc2 Support
+[ INFO ] QnnDsp <I> QnnDevice_free done. status 0x0
+2096.9ms [ ERROR ] Could not free context
+Hata: Motor süreci beklenmedik şekilde kapandı (kod 1).
+```
+
+Bu üçüncü kez aynı kuyruk: düz `a8w8` paketinde, 2.40 paketinde, şimdi 2.39
+paketinde. Kullanıcı ayrıca **Snapdragon 8 Gen 1 için dönüştürülmüş bir modelin
+de aynı hatayı verdiğini** söylemişti. Yani bu mesaj bir teşhis değil, sadece
+sürecin ölürken bastığı son satır — asıl hata `Son çıktı` penceresinin
+üstünde kalıyor ve göremiyoruz.
+
+Not: `main.cpp` bir `--log_level <n>` seçeneği kabul ediyor (varsayılan
+`QNN_LOG_LEVEL_ERROR`). Ruya bunu geçirebilirse tam hata görülebilir.
+
+### Yaklaşım değişikliği: referansla alan alan karşılaştır
+
+Tahmin etmeyi bırakıyoruz. Yeni adım **6d** (`COMPARE_REF=1`), HuggingFace
+`xororz/sd-qnn` deposundan **çalışan** bir `_min` paketi indirip `unet.bin`
+metadata'sını bizimkiyle karşılaştırıyor:
+
+* `dsp_arch`, VTCM boyutu, optimizasyon seviyesi
+* graf adı, tensör sırası/isimleri/tipleri/kuantizasyon parametreleri
+* spill-fill buffer boyutu, backend build id
+
+Şüphelendiğim yer VTCM: `gen_htp_config.py` yalnızca `dsp_arch` yazıyor, VTCM'yi
+varsayılana bırakıyor. v68 varsayılanı 8 MB olabilir; Snapdragon 7 Gen 1'in
+VTCM'si daha küçükse bağlam cihazda kurulamaz — ve bu, "8 Gen 1 için üretilmiş
+model de aynı hatayı veriyor" gözlemini birebir açıklar. Ama artık tahminle
+değil, referansın ne yazdığını okuyarak karar vereceğiz.
