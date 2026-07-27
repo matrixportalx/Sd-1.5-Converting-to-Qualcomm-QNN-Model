@@ -70,6 +70,7 @@ def build_onnx(path, decl_order, names, consume_order):
         np.random.randn(1000, 4).astype(np.float32), "tp_table")
     shp_t = numpy_helper.from_array(np.array([1, 4, 1, 1], dtype=np.int64), "shp_t")
     shp_e = numpy_helper.from_array(np.array([1, 1, 1, 1], dtype=np.int64), "shp_e")
+    c_half = numpy_helper.from_array(np.float32([0.5]), "c_half")
 
     # rol -> o rolu tuketen dugum(ler); consume_order'a gore sirala
     nodes = {
@@ -81,8 +82,11 @@ def build_onnx(path, decl_order, names, consume_order):
             helper.make_node("ReduceMean", [n_e], ["e_m"], axes=[1, 2], keepdims=1),
             helper.make_node("Reshape", ["e_m", "shp_e"], ["e_r"]),
         ],
+        # DIKKAT: burada onceden Identity vardi ve donusturucu onu ELIYOR;
+        # sample'in ilk tuketimi en sondaki Add'e kayiyordu (A senaryosunun
+        # [t,e,s] cikmasinin sebebi buydu). Elenmeyecek bir op kullaniyoruz.
         "sample": [
-            helper.make_node("Identity", [n_s], ["s_i"]),
+            helper.make_node("Mul", [n_s, "c_half"], ["s_i"]),
         ],
     }
     graph_nodes = []
@@ -97,7 +101,7 @@ def build_onnx(path, decl_order, names, consume_order):
         graph_nodes, "probe",
         [vi[r] for r in decl_order],
         [helper.make_tensor_value_info("output", TensorProto.FLOAT, SHAPES["sample"])],
-        [table, shp_t, shp_e])
+        [table, shp_t, shp_e, c_half])
     m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 13)])
     m.ir_version = 8
     onnx.save(m, path)
@@ -125,13 +129,41 @@ def _write_calib(work, names):
     return lst
 
 
-def convert_and_read_order(onnx_path, work, names):
+def _write_io_config(work, names):
+    """Gercek hattaki --config YAML'inin kucuk kopyasi: sinir tensorleri
+    uint16, timestamp int32."""
+    b = []
+    b.append("Converted Graph:")
+    b.append("  - Input Tensors:")
+    b.append("  - Output Tensors:")
+    b.append("")
+    b.append("Input Tensor Configuration:")
+    for i, (role, dt, src) in enumerate(
+            (("sample", "uint16", "float32"),
+             ("timestamp", "int32", "int32"),
+             ("text_embedding", "uint16", "float32")), 1):
+        b += [f"  # Input {i}", f"  - Name: {names[role]}",
+              "    Src Model Parameters:", f"        DataType: {src}",
+              "    Desired Model Parameters:", f"        DataType: {dt}", ""]
+    b += ["", "Output Tensor Configuration:", "  # Output 1",
+          "  - Name: output", "    Src Model Parameters:",
+          "        DataType: float32", "    Desired Model Parameters:",
+          "        DataType: uint16", ""]
+    pth = os.path.join(work, "io.yaml")
+    with open(pth, "w") as f:
+        f.write("\n".join(b) + "\n")
+    return pth
+
+
+def convert_and_read_order(onnx_path, work, names, io_config=False):
     """ONNX -> DLC -> kuantize DLC -> context binary -> graphInputs sirasi."""
     dlc = os.path.join(work, "probe.dlc")
-    r = subprocess.run([PY, os.path.join(BIN, "qairt-converter"),
-                        "--input_network", onnx_path, "--output_path", dlc,
-                        "--target_backend", "HTP"],
-                       env=_env(), capture_output=True, text=True)
+    cargs = [PY, os.path.join(BIN, "qairt-converter"),
+             "--input_network", onnx_path, "--output_path", dlc,
+             "--target_backend", "HTP"]
+    if io_config:
+        cargs += ["--config", _write_io_config(work, names)]
+    r = subprocess.run(cargs, env=_env(), capture_output=True, text=True)
     if not os.path.exists(dlc):
         return None, f"converter basarisiz:\n{r.stdout[-1500:]}{r.stderr[-1500:]}"
 
@@ -181,23 +213,27 @@ def convert_and_read_order(onnx_path, work, names):
     return [t.get("info", t).get("name") for t in gi.get("graphInputs", [])], None
 
 
+NAMES = {"sample": "sample", "timestamp": "timestamp",
+         "text_embedding": "text_embedding"}
+
+# (etiket, bildirim sirasi, adlar, TUKETIM sirasi, io_config)
+# Olculen kural: sira = optimize grafta ILK TUKETIM sirasi.
+# Burada asil soru: --config (uint16 sinir) bu kurali bozuyor mu? Gercek UNet'te
+# sira [text_embedding, timestamp, sample] cikiyor, oysa diffusers once
+# time_proj, sonra conv_in, en son attention calistiriyor.
 CASES = [
-    ("A taban",
-     ["sample", "timestamp", "text_embedding"],
-     {"sample": "sample", "timestamp": "timestamp", "text_embedding": "text_embedding"},
-     ["sample", "timestamp", "text_embedding"]),
-    ("B bildirim ters",
-     ["text_embedding", "timestamp", "sample"],
-     {"sample": "sample", "timestamp": "timestamp", "text_embedding": "text_embedding"},
-     ["sample", "timestamp", "text_embedding"]),
-    ("C isim uzunlugu (latent en uzun ad)",
-     ["sample", "timestamp", "text_embedding"],
-     {"sample": "aaaaaaaaaaaaaa", "timestamp": "bbbbbbbbb", "text_embedding": "cc"},
-     ["sample", "timestamp", "text_embedding"]),
-    ("D tuketim sirasi ters",
-     ["sample", "timestamp", "text_embedding"],
-     {"sample": "sample", "timestamp": "timestamp", "text_embedding": "text_embedding"},
-     ["text_embedding", "timestamp", "sample"]),
+    ("A2 tuketim s,t,e  (config YOK)",
+     ["sample", "timestamp", "text_embedding"], NAMES,
+     ["sample", "timestamp", "text_embedding"], False),
+    ("E  tuketim s,t,e  (config VAR)",
+     ["sample", "timestamp", "text_embedding"], NAMES,
+     ["sample", "timestamp", "text_embedding"], True),
+    ("F  tuketim t,s,e  (config VAR)  kontrol",
+     ["sample", "timestamp", "text_embedding"], NAMES,
+     ["timestamp", "sample", "text_embedding"], True),
+    ("G  tuketim e,t,s  (config VAR)  gercek UNet'e benzer",
+     ["sample", "timestamp", "text_embedding"], NAMES,
+     ["text_embedding", "timestamp", "sample"], True),
 ]
 
 
@@ -217,17 +253,18 @@ def main() -> None:
     print()
 
     results = []
-    for label, decl, names, consume in CASES:
+    for label, decl, names, consume, iocfg in CASES:
         work = os.path.join(root, label.split()[0])
         os.makedirs(work, exist_ok=True)
         onnx_path = os.path.join(work, "probe.onnx")
         build_onnx(onnx_path, decl, names, consume)
-        order, err = convert_and_read_order(onnx_path, work, names)
+        order, err = convert_and_read_order(onnx_path, work, names, iocfg)
         rev = {v: k for k, v in names.items()}
         roles = [rev.get(n, n) for n in order] if order else None
         print(f"--- {label}")
         print(f"    bildirim : {decl}")
         print(f"    tuketim  : {consume}")
+        print(f"    io-config: {'VAR' if iocfg else 'yok'}")
         print(f"    adlar    : {names}")
         if err:
             print(f"    SONUC    : HATA — {err}")

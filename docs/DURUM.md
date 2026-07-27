@@ -1083,3 +1083,54 @@ Ayrıca:
   kaybetmeyelim.
 * `PROBE_ONLY=1`: yoklamadan sonra koşu duruyor. Sıra çözülmeden tam dönüşüm
   zaten `4b`'de başarısız bitiyor; 4 dakikayı boşa harcamanın anlamı yok.
+
+## KURAL BULUNDU: sıra = grafta ilk tüketim sırası
+
+Yoklama v2 kesin sonuç verdi:
+
+| senaryo | tüketim sırası | binary sırası |
+|---|---|---|
+| A | s, t, e | t, e, s |
+| B | s, t, e (**bildirim ters**) | t, e, s — bildirim etkisiz |
+| C | s, t, e (**adlar değişik**) | t, e, s — isim etkisiz |
+| D | **e, t, s** | **e, t, s** — tüketim etkili |
+
+A'nın sapması da açıklandı: orada `sample`'ın ilk tüketicisi `Identity`'ydi ve
+dönüştürücü onu eliyor, `sample` en sondaki `Add`'e kayıyor. Elenmeyen bir op
+(`Mul`) konunca A da kurala uyuyor.
+
+**Kural: QNN graf girdi sırası = optimize grafta ilk tüketim sırası.**
+Bildirim sırası, tensör adları ve `--source_model_input_shape` etkisiz — üçü de
+ayrı ayrı ölçüldü.
+
+### Düzeltme: ONNX düğümlerini topolojik olarak yeniden sırala
+
+`scripts/reorder_onnx_nodes.py`, Kahn topolojik sıralamasını öncelikli kuyrukla
+çalıştırıyor: her düğüme transitif olarak bağlı olduğu graf girdilerinin en
+küçük öncelik değeri atanıyor, hazır düğümler arasından en düşük öncelikli
+seçiliyor. Sonuç: `sample`'a bağlı zincir önce, `timestamp` sonra,
+yalnızca `text_embedding`'e bağlı olanlar en son — bağımlılıklar bozulmadan.
+
+Düğüm sırasını değiştirmek ONNX semantiğini değiştirmez; `graph.node` yalnızca
+topolojik olarak geçerli olmak zorundadır.
+
+Birim testi (diffusers UNet'in düğüm sırasını taklit eden sahte graf):
+
+```
+eski dugum sirasi : gather_t, lin1, conv_in, res1, attn2, out
+eski ilk tuketim  : timestamp, sample, text_embedding
+yeni dugum sirasi : conv_in, gather_t, lin1, res1, attn2, out
+yeni ilk tuketim  : sample, timestamp, text_embedding   <- hedef
+```
+
+### Açık kalan soru
+
+Gerçek UNet'te gözlenen sıra `[text_embedding, timestamp, sample]` idi, oysa
+diffusers önce `time_proj`, sonra `conv_in`, en son attention çalıştırıyor —
+yani beklenen `[timestamp, sample, text_embedding]`. Aradaki fark muhtemelen
+oyuncakta kullanılmayan `--config` (uint16 sınır). Yoklama v3 bunu da ölçüyor:
+E/F/G senaryoları aynı testleri `--config` **açıkken** tekrarlıyor.
+
+Yedek plan için not: `qnn-onnx-converter` bu SDK'da var ama `pandas` eksikliği
+yüzünden açılmıyor (`ModuleNotFoundError: No module named 'pandas'`) — gerekirse
+`pip install pandas` yeter. `qnn-model-lib-generator` sorunsuz çalışıyor.

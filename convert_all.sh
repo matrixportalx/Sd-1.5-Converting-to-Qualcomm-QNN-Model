@@ -250,6 +250,18 @@ fi
 #   a8w8                        : tam 8-bit — DERLENIR ama motor uint16
 #                                 yazdigi icin CIHAZDA YUKLENMEZ (yalnizca
 #                                 boru hattini test etmek icin)
+# ---- Girdi sirasini ONNX dugum sirasiyla zorla --------------------------
+# Olculen kural (probe_input_order.py): QNN graf girdi sirasi = optimize grafta
+# ILK TUKETIM sirasi. Bildirim sirasi / tensor adlari / -s argumanlari etkisiz.
+# Motor tensorleri indeksle yazdigi icin sample once, timestamp sonra,
+# text_embedding en son tuketilmeli. Dugumleri topolojik olarak yeniden
+# siralamak semantigi degistirmez (graph.node sadece topolojik gecerli olmali).
+if [ "${FORCE_INPUT_ORDER:-1}" = "1" ] && [ -f "$WORK/onnx/unet_${TAG}.onnx" ]; then
+  python3 "$SDIR/reorder_onnx_nodes.py" --onnx "$WORK/onnx/unet_${TAG}.onnx" \
+      --order "${IO_ORDER:-sample,timestamp,text_embedding}" \
+    || echo "  [dugum-sirasi] yeniden siralama yapilamadi"
+fi
+
 UNET_MODE="${UNET_MODE:-a16w8_restrict}"
 U_OVERRIDES=""      # yalnizca UNet'e verilir; VAE adimlarina SIZMAMALI
 U_IO_CONFIG=""
