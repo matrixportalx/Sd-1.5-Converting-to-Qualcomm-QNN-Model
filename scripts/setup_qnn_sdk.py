@@ -187,7 +187,24 @@ def main():
     os.makedirs(cache, exist_ok=True)
     archive = os.path.join(cache, name)
     if not os.path.exists(archive):
-        download(url, archive, args.token)
+        try:
+            download(url, archive, args.token)
+        except Exception as e:
+            # Indirme basarisizsa (or. 404) sessizce olme: hangi surumlerin
+            # indirilebildigini BURADA goster ki config.env tek satirla
+            # duzeltilebilsin.
+            if os.path.exists(archive):
+                os.remove(archive)
+            print(f"\n[!] Indirilemedi: {url}\n    ({type(e).__name__}: {e})\n")
+            try:
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                import probe_qairt_versions as probe
+                probe.main()
+            except Exception as pe:
+                print(f"[!] Yoklama da calismadi: {pe}")
+            sys.exit("HATA: SDK indirilemedi. Yukaridaki listeden calisan bir "
+                     "surumu config.env icindeki OVERRIDE_QAIRT_ASSET_URL "
+                     "satirina yazip 4. adimi tekrar calistirin.")
     else:
         print(f"[*] Arsiv onbellekten: {archive} "
               f"({os.path.getsize(archive)>>20} MB)")
