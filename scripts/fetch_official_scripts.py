@@ -30,16 +30,21 @@ GUIDE = "https://ld-guide.chino.icu/conversion/sd15"
 UA = {"User-Agent": "Mozilla/5.0 (curl-like)"}
 
 # Loga dokulecek dosyalar: adi eslesirse basilir (en degerliler basta)
+# EN KRITIK OLANLAR BASTA. convert_all.sh yalnizca envsetup.sh'i source edip
+# alt scriptleri cagiriyor; asil arac zinciri convert_unet.sh icinde.
 DUMP = [
-    "scripts/convert_all.sh",
-    "scripts/convert_all_unet_only.sh",
-    "export_onnx.py",
-    "export_onnx_unet_only.py",
-    "gen_quant_data.py",
-    "prepare_data.py",
-    "pyproject.toml",
+    "scripts/convert_unet.sh",          # <-- unet.bin'i ureten gercek zincir
+    "scripts/convert_clip.sh",
+    "scripts/convert_vae_decoder.sh",
+    "scripts/convert_vae_encoder.sh",
+    "htp_config_min.json",
+    "htp_backend_min.json",
+    # ONNX'i HTP dostu yapan degistirilmis diffusers modulleri
+    "redefined_modules/diffusers/models/embeddings.py",   # timestamp yolu
+    "redefined_modules/diffusers/models/attention.py",    # MHA -> SHA (conv)
+    "export.sh",
 ]
-DUMP_MAX_LINES = 250
+DUMP_MAX_LINES = 400
 
 
 def _get(url, timeout=90):

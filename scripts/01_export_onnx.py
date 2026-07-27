@@ -78,13 +78,17 @@ def export_clip_split(pipe, out_dir, opset, pipeline_dir):
     hidden = te.config.hidden_size
     emb = _find_clip_embeddings(te)
 
-    # 1) token_emb.bin — HAM fp32 [vocab, hidden]
-    # Referans model: 49408*768*4 = 151,781,376 bayt -> fp32 (fp16 DEGIL).
-    # TextEncoder.hpp 100MB esigine gore fp32 legacy yolunu secer.
-    tok_w = emb.token_embedding.weight.detach().cpu().numpy().astype(np.float32)
+    # 1) token_emb.bin — HAM fp16 [vocab, hidden]
+    # Resmi script (npuconvertv2/export_onnx.py) fp16 yaziyor:
+    #     token_embedding.weight.data.to(torch.float16).numpy().tofile(...)
+    # Referans paket de bunu dogruluyor: 49408*768*2 = 75.89 MB (bizim fp32
+    # ciktimiz 144 MB idi). TextEncoder.hpp ikisini de kabul ediyor ("SD1.5
+    # token_emb may still be legacy FP32, detected by file size") ama resmi
+    # hatta hizalanmak + paketi ~70 MB kucultmek icin fp16 kullaniyoruz.
+    tok_w = emb.token_embedding.weight.detach().cpu().numpy().astype(np.float16)
     tok_path = os.path.join(out_dir, "token_emb.bin")
     tok_w.tofile(tok_path)
-    print(f"[*] token_emb.bin  {tok_w.shape} fp32 -> {tok_path} "
+    print(f"[*] token_emb.bin  {tok_w.shape} fp16 -> {tok_path} "
           f"({os.path.getsize(tok_path)>>20} MB)")
 
     # 2) pos_emb.bin — HAM fp32 [77, hidden]

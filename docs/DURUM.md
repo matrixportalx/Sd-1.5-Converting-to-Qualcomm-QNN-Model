@@ -1236,3 +1236,66 @@ zamanı sıfırlanınca değişkenler kayboluyor.
 
 Seçilen değerler önemsiz — `config.env` hepsini eziyor. `convert_all.sh`'in
 checkpoint uyarısı artık bu sırayı ve hatayı açıkça yazıyor.
+
+## Resmi scriptler elde edildi — büyük bulgular
+
+`npuconvertv2.zip` (7.3 MB, 62 dosya) indi. Beklediğimden çok daha fazlasını
+açıklıyor.
+
+### 1. `convert_all.sh` sadece bir sarmalayıcı
+
+```bash
+QNN_SDK_ROOT=/data/qairt/2.28.0.241029
+cd $QNN_SDK_ROOT/bin && source envsetup.sh
+bash scripts/convert_clip.sh
+bash scripts/convert_vae_encoder.sh
+bash scripts/convert_vae_decoder.sh
+bash scripts/convert_unet.sh
+```
+
+Asıl araç zinciri **`scripts/convert_unet.sh`** içinde — ve o dosyayı dökme
+listesine koymayı atlamışım. Liste güncellendi; zip zaten indirilmiş durumda,
+bir sonraki koşu saniyeler sürecek.
+
+### 2. ONNX üretimi bizimkinden yapısal olarak farklı
+
+```python
+from redefined_modules.diffusers.models.unet_2d_condition import UNet2DConditionModel
+replace_mha_with_sha_blocks(unet)   # CrossAttention: Linear -> Conv
+```
+
+* **`redefined_modules/`** — diffusers'ın `unet_2d_condition.py`,
+  `attention.py`, `embeddings.py`, `resnet.py`, `unet_2d_blocks.py`
+  modüllerinin **değiştirilmiş kopyaları**. Yani ONNX'i HTP dostu yapan şey
+  dönüştürücü bayrakları değil, **modelin kendisinin yeniden yazılması**.
+* **MHA → SHA**: cross-attention'daki Linear katmanlar Conv'a çevriliyor.
+  Bu, HTP'de çok daha verimli ve bizim `attn2/MatMul` sorunlarımızın da
+  muhtemel açıklaması.
+* `embeddings.py` değiştirilmiş — bizim günlerce uğraştığımız `time_proj`
+  int32 sorununun oradaki çözümü ne, görmemiz lazım.
+
+Girdi adları ve sırası **bizimkiyle aynı**:
+`["sample", "timestamp", "text_embedding"]` → `["output"]`.
+Fark: `timestamp` orada `torch.tensor([0], dtype=torch.long)`.
+
+### 3. token_emb.bin fp16 (bizde fp32'ydi)
+
+```python
+token_embedding.weight.data.to(torch.float16).numpy().tofile("clip/token_emb.bin")
+```
+
+Referans paket doğruluyor: 49408×768×2 = **75.89 MB**; bizim çıktımız 144 MB
+(fp32). `TextEncoder.hpp` ikisini de kabul ediyor ("SD1.5 token_emb may still
+be legacy FP32, detected by file size"), yani bu bir yükleme hatası değildi —
+ama resmi hatta hizalanıp paketi ~70 MB küçültmek için fp16'ya geçildi
+(export v19).
+
+### 4. Kalibrasyon: 400 örneğe kadar
+
+`gen_quant_data.py` UNet için **400 örnek** kullanıyor (ve `|sample|>7.2` olan
+örnekleri atıyor). Rehberdeki "several hours" bundan. Bizim `FAST_TRIAL=1`
+ile 2 örnek kullanmamız kaliteyi düşürüyor — boru hattı çalışınca artırılmalı.
+
+### 5. Kendi MNN dönüştürücülerini taşıyorlar
+
+Zip'te `MNNConvert` ikili dosyası var; CLIP dönüşümü onunla yapılıyor.

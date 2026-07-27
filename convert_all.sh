@@ -164,6 +164,9 @@ fi
 disk_report "adim 0 sonrasi"
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
+# v19: token_emb.bin fp16 (resmi script boyle yaziyor; referans 75.89 MB,
+# bizim fp32 ciktimiz 144 MB idi). Uygulama ikisini de kabul ediyor ama
+# resmi hatta hizalaniyoruz.
 # v18: time_proj onceden hesaplanmis [1000,320] tabloya cevrildi; grafta
 # yalnizca Gather kaldi. Motor timestamp'i ham int32 yazdigi icin sinir INT_32
 # olmak zorunda ve HTP'de int32'yi kuantize dunyaya baglayan TEK op Gather
@@ -178,7 +181,7 @@ disk_report "adim 0 sonrasi"
 # 16-bit sinir artik qairt-converter --config ile veriliyor).
 # v12: Clip bariyeri.
 # v11: UNet a16w8 + restrict steps. v10: referans recete (16-bit I/O, graf "model", v68).
-EXPORT_VERSION="18"
+EXPORT_VERSION="19"
 STAMP="$WORK/onnx/.export_version"
 # NOT: clip_v2.onnx MNN'e cevrildikten sonra siliniyor (yer), o yuzden burada
 # clip_v2.onnx YA DA clip_v2.mnn'den biri yeterli sayiliyor.
