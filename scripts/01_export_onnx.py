@@ -125,8 +125,15 @@ def export_clip_split(pipe, out_dir, opset, pipeline_dir):
     )
     simplify_onnx(path)
 
-    # 4) clip.onnx — TAM CLIP (gomme dahil, giris input_ids). Referans paketlerde
-    # clip.mnn hem clip_v2.mnn ile birlikte bulunur.
+    # 4) clip.onnx — TAM CLIP (gomme dahil, giris input_ids).
+    # VARSAYILAN OLARAK URETILMEZ: referans _min paketinde (ekran goruntusuyle
+    # dogrulandi) clip.mnn YOK, yalnizca clip_v2.mnn var. ~500 MB ONNX + 156 MB
+    # MNN bosuna yer kapliyordu ve Colab'da disk bu yuzden doluyor.
+    # Denemek isteyen: EXPORT_FULL_CLIP=1
+    if os.environ.get("EXPORT_FULL_CLIP", "0") != "1":
+        print("[*] clip (tam) ATLANDI — pakette yok (EXPORT_FULL_CLIP=1 ile acilir)")
+        return
+
     class ClipFull(torch.nn.Module):
         def __init__(self, text_encoder):
             super().__init__()

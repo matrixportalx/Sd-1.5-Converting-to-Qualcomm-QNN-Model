@@ -91,6 +91,21 @@ if [ ! -f "$WORK/pipeline/model_index.json" ] && [ ! -s "$CKPT" ]; then
   exit 1
 fi
 
+# ---- Disk ------------------------------------------------------------------
+# Colab'da alan dar ve qairt-converter ONNX'in harici agirliklarini (UNet icin
+# ~3.4 GB) gecici dizine KOPYALIYOR. Yer bitince "No space left on device" ile
+# olen bir donusum aliyoruz. Gecici dizini kendi kontrolumuze aliyoruz ki hem
+# yerini bilelim hem de temizleyebilelim.
+export QAIRT_TMP_DIR="$(pwd)/$WORK/tmp"
+rm -rf "$QAIRT_TMP_DIR"; mkdir -p "$QAIRT_TMP_DIR"
+
+disk_report() {   # disk_report <etiket>
+  echo "  [disk] $1: $(df -h . | awk 'NR==2{print $4" bos / "$2" toplam"}')"
+  if [ -d "$WORK" ]; then
+    du -sh "$WORK"/* 2>/dev/null | sort -rh | head -6 | sed 's/^/        /'
+  fi
+}
+
 # ---- 0) safetensors -> diffusers ------------------------------------------
 if [ "$FORCE" = 0 ] && [ -f "$WORK/pipeline/model_index.json" ]; then
   echo "### 0) safetensors -> diffusers [ATLANDI]"
@@ -98,6 +113,15 @@ else
   echo "### 0) safetensors -> diffusers"
   python3 "$SDIR/00_load_safetensors.py" --checkpoint "$CKPT" --output "$WORK/pipeline"
 fi
+
+# pipeline/ hazir olduktan sonra .safetensors'a bir daha ihtiyac YOK; birkac GB
+# yer kapliyor. KEEP_CKPT=1 ile saklanabilir.
+if [ "${KEEP_CKPT:-0}" != "1" ] && [ -f "$WORK/pipeline/model_index.json" ] \
+   && [ -f "$CKPT" ]; then
+  echo "  [disk] $CKPT siliniyor ($(du -h "$CKPT" | cut -f1)) — pipeline/ hazir"
+  rm -f "$CKPT"
+fi
+disk_report "adim 0 sonrasi"
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
 # v18: time_proj onceden hesaplanmis [1000,320] tabloya cevrildi; grafta
@@ -116,7 +140,10 @@ fi
 # v11: UNet a16w8 + restrict steps. v10: referans recete (16-bit I/O, graf "model", v68).
 EXPORT_VERSION="18"
 STAMP="$WORK/onnx/.export_version"
-if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
+# NOT: clip_v2.onnx MNN'e cevrildikten sonra siliniyor (yer), o yuzden burada
+# clip_v2.onnx YA DA clip_v2.mnn'den biri yeterli sayiliyor.
+if [ "$FORCE" = 0 ] \
+   && { [ -f "$WORK/onnx/clip_v2.onnx" ] || [ -f "$WORK/mnn/clip_v2.mnn" ]; } \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
    && [ "$(cat "$STAMP" 2>/dev/null)" = "$EXPORT_VERSION" ]; then
   echo "### 1) ONNX/emb export [ATLANDI - guncel v$EXPORT_VERSION]"
@@ -138,6 +165,11 @@ else
   echo "### 2) clip_v2 -> MNN"
   ( cd "$SDIR" && ./04_convert_mnn.sh "../$WORK/onnx" "../$WORK/mnn" )
 fi
+# CLIP ONNX'leri MNN'e cevrildi; paketlenmiyorlar, yer kaplamasinlar.
+if [ -f "$WORK/mnn/clip_v2.mnn" ]; then
+  rm -f "$WORK/onnx/clip_v2.onnx" "$WORK/onnx/clip.onnx"
+fi
+disk_report "adim 2 sonrasi"
 
 # ---- 3) UNet kalibrasyonu (int8 icin) -------------------------------------
 # Tensor isimleri degistiyse (timestamp/text_embedding) kalibrasyon listesi
@@ -229,11 +261,17 @@ case "$UNET_MODE" in
   *) echo "HATA: bilinmeyen UNET_MODE=$UNET_MODE"; exit 1 ;;
 esac
 echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
+# Bu adim en cok yer isteyen adim: converter ONNX'in harici agirliklarini
+# QAIRT_TMP_DIR'e kopyaliyor (~3.4 GB) ve ustune fp32 DLC uretiyor (~3.4 GB).
+disk_report "adim 4 oncesi"
 ( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
     RESTRICT_STEPS="$U_RESTRICT" QUANT_OVERRIDES="$U_OVERRIDES" \
     IO_CONFIG="$U_IO_CONFIG" \
     ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
     model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
+# UNet'in harici agirlik kopyasi (~3.4 GB) VAE adimlarindan once bosaltilir.
+rm -rf "${QAIRT_TMP_DIR:?}"/* 2>/dev/null || true
+disk_report "adim 4 sonrasi"
 
 # ---- 5) VAE decoder -> QNN (int8; HTP GroupNorm'u float'ta desteklemez) ----
 # 5a) VAE decoder kalibrasyonu (nihai olceksiz latent'ler)

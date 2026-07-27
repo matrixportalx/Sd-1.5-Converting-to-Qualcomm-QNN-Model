@@ -768,3 +768,33 @@ INT_32→INT_32'yi destekliyor (hata mesajındaki OTHERS #3). v16'nın expand
 kancası ve ONNX emniyet ağı yine de yerinde bırakıldı.
 
 Kalibrasyon (v4) ve io-config timestamp'i tekrar int32'ye döndü.
+
+## Disk doldu (adım 4) — alınan önlemler
+
+v18 export'u sorunsuz geçti (`[time_proj] 1000x320 tablo`), ama dönüşüm bu sefer
+başka bir yerde öldü:
+
+```
+OSError: [Errno 28] No space left on device:
+  '.../unet.down_blocks.3.resnets.1.time_emb_proj.weight' -> '/tmp/tmpXXXX/...'
+RuntimeError: Failed to copy external data to the disk at: /tmp/tmpXXXX.
+  Try setting QAIRT_TMP_DIR environment variable to different location.
+```
+
+`qairt-converter` ONNX'in harici ağırlıklarını (UNet için ~3.4 GB) geçici bir
+dizine **kopyalıyor**, üstüne fp32 DLC (~3.4 GB) üretiyor. Colab'da toplam
+ihtiyaç ~20 GB'ı geçiyor.
+
+Önlemler:
+* `QAIRT_TMP_DIR` artık `work/<model>/tmp` — yerini biliyoruz, koşu başında ve
+  adım 4 sonrasında temizleniyor.
+* `pipeline/` yazıldıktan sonra `input.safetensors` siliniyor (`KEEP_CKPT=1`
+  ile korunur). Birkaç GB.
+* `clip.onnx` (tam CLIP) artık **üretilmiyor** — referans `_min` paketinde
+  `clip.mnn` yok, ekran görüntüsüyle doğrulandı. ~500 MB ONNX + 156 MB MNN.
+  Gerekirse `EXPORT_FULL_CLIP=1`.
+* `clip_v2.onnx` MNN'e çevrildikten sonra siliniyor (~500 MB).
+* `FREE_FP_DLC=1` (config.env'de açık): kuantize DLC hazır olunca fp32 DLC
+  siliniyor (~3.4 GB). Bedeli: sonraki koşuda dönüşüm + kuantizasyon baştan.
+* `disk_report` — adım 0/2/4 öncesi-sonrası boş alan ve en büyük klasörler
+  yazdırılıyor, bir daha körlemesine tahmin etmeyelim.

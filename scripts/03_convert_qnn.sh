@@ -285,6 +285,14 @@ PY
     rm -f "$OUT/${OUT_NAME}.bin"
   fi
   DLC_FOR_BIN="$Q_DLC"
+  # FREE_FP_DLC=1 : kuantize DLC hazir olunca fp32 DLC'yi sil. UNet'te ~3.4 GB
+  # eder ve context binary uretimi yalnizca kuantize DLC'yi kullanir. Bedeli:
+  # sonraki kosuda hem donusum hem kuantizasyon bastan yapilir. Colab'da disk
+  # dar oldugu icin varsayilan olarak config.env'den aciliyor.
+  if [ "${FREE_FP_DLC:-0}" = "1" ] && [ -f "$Q_DLC" ] && [ -f "$FP_DLC" ]; then
+    echo "  [disk] fp32 DLC siliniyor ($(du -h "$FP_DLC" | cut -f1)) — kuantize DLC yeterli"
+    rm -f "$FP_DLC" "$WORK/${GRAPH}.args"
+  fi
 else
   echo "  [float] kuantizasyon yok (fp16)"
   DLC_FOR_BIN="$FP_DLC"
