@@ -640,3 +640,22 @@ koşul dar. Aynı teknik CLIP gömme ayırmada da kullanılıyor.
 Not: `a8w8` (io-config'siz) derlemesinin daha önce sorunsuz geçmesinin sebebi,
 o modda `timestamp`'ın da uint8'e kuantize edilmesiydi — Expand uint8→uint8
 oluyordu. io-config ile INT_32 olunca kombinasyon geçersizleşti.
+
+## Expand hâlâ duruyor — kanca tetiklenmemiş (v16)
+
+v15'te `torch.Tensor.expand` sarmalandı ama `/unet/Expand` ONNX'te kaldı.
+Koşuldaki `isinstance(sizes[0], int)` izleme sırasında tutmuyor — `sample.shape[0]`
+düz `int` yerine izlenmiş bir değer dönüyor.
+
+**v16 iki katmanlı:**
+
+1. Kanca tip-bağımsız hale getirildi (`int(tgt)` denemesi, başarısızsa orijinal
+   expand'a düşer) ve kaç düğüm elendiği loglanıyor:
+   `[expand] N kimlik expand elendi`
+2. **ONNX düzeyinde emniyet ağı** (`_strip_timestamp_expand`): kanca tutmazsa,
+   `timestamp` girişinden beslenen ve hedef şekli girişin kendi şekline eşit
+   olan Expand düğümü doğrudan grafdan çıkarılıp tüketiciler yeniden bağlanıyor.
+   Model >1.8 GB ise external-data ile kaydediliyor.
+
+Emniyet ağı birim testten geçti: kimlik Expand siliniyor ve `Cast` doğrudan
+`timestamp`'a bağlanıyor; şekil büyüten gerçek Expand korunuyor.

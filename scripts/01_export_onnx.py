@@ -200,6 +200,67 @@ def export_vae_encoder(pipe, out_dir, opset, res0):
 # --------------------------------------------------------------------------
 # UNet
 # --------------------------------------------------------------------------
+def _strip_timestamp_expand(path):
+    """EMNIYET AGI: izleme kancasi tutmazsa, 'timestamp' girisinden beslenen
+    KIMLIK Expand dugumunu ONNX duzeyinde kaldirir.
+
+    HTP bu dugumu Reshape'e cevirip  in:INT_32 -> out:UFIXED_POINT_8  istiyor;
+    kabul listesinde bu ikili yok. Expand hedef sekli girisin kendi sekline
+    esitse islem zaten kimliktir, guvenle silinebilir.
+    """
+    try:
+        import onnx
+        from onnx import numpy_helper
+    except Exception as e:
+        print(f"    [expand] ONNX temizligi atlandi ({type(e).__name__})")
+        return
+    try:
+        m = onnx.load(path)
+        g = m.graph
+        tin = next((i for i in g.input if i.name == "timestamp"), None)
+        if tin is None:
+            return
+        shp = [d.dim_value for d in tin.type.tensor_type.shape.dim]
+        inits = {i.name for i in g.initializer}
+        init_val = {i.name: numpy_helper.to_array(i) for i in g.initializer
+                    if i.name in inits}
+
+        # timestamp'ten baslayarak tip-korur dugumler uzerinden ilerle
+        reachable = {"timestamp"}
+        rename, keep, removed = {}, [], 0
+        for n in g.node:
+            if (n.op_type == "Expand" and n.input and n.input[0] in reachable
+                    and len(n.input) == 2 and n.input[1] in init_val
+                    and [int(v) for v in init_val[n.input[1]].tolist()] == shp):
+                rename[n.output[0]] = n.input[0]
+                reachable.add(n.output[0])
+                removed += 1
+                continue
+            if n.op_type in ("Identity", "Cast") and n.input and n.input[0] in reachable:
+                reachable.add(n.output[0])
+            keep.append(n)
+        if not removed:
+            return
+        del g.node[:]
+        g.node.extend(keep)
+        for n in g.node:
+            for i, x in enumerate(n.input):
+                while x in rename:
+                    x = rename[x]
+                n.input[i] = x
+        big = os.path.getsize(path) > 1_800_000_000
+        if big:
+            data = os.path.basename(path) + ".data"
+            onnx.save(m, path, save_as_external_data=True,
+                      all_tensors_to_one_file=True, location=data,
+                      size_threshold=1024)
+        else:
+            onnx.save(m, path)
+        print(f"    [expand] ONNX duzeyinde {removed} kimlik Expand kaldirildi")
+    except Exception as e:
+        print(f"    [expand] ONNX temizligi basarisiz ({type(e).__name__}: {e})")
+
+
 def export_unet(pipe, out_dir, opset, res):
     unet = pipe.unet.eval()
     hidden = pipe.text_encoder.config.hidden_size
@@ -259,11 +320,21 @@ def export_unet(pipe, out_dir, opset, res):
     # ("The cast op ... will be interpreted at conversion time") ve Expand yine
     # int32 aliyor. Bu yuzden izleme sirasinda kimlik expand'lari eliyoruz.
     _orig_expand = torch.Tensor.expand
+    _n_skipped = [0]
 
     def _expand_identity_skip(self, *sizes):
-        if (len(sizes) == 1 and isinstance(sizes[0], int)
-                and tuple(self.shape) == (sizes[0],)):
-            return self          # kimlik: dugum yazma
+        # NOT: izleme sirasinda sample.shape[0] duz int OLMAYABILIR (izlenmis
+        # deger / SymInt). Bu yuzden tip kontrolu yerine int()'e cevirmeyi
+        # deniyoruz — cevrilemezse orijinal expand'a dusuyoruz.
+        try:
+            tgt = sizes[0] if len(sizes) == 1 else None
+            if isinstance(tgt, (list, tuple)) and len(tgt) == 1:
+                tgt = tgt[0]
+            if tgt is not None and self.dim() == 1 and int(self.shape[0]) == int(tgt):
+                _n_skipped[0] += 1
+                return self          # kimlik: dugum yazma
+        except Exception:
+            pass
         return _orig_expand(self, *sizes)
 
     torch.Tensor.expand = _expand_identity_skip
@@ -276,6 +347,8 @@ def export_unet(pipe, out_dir, opset, res):
             opset_version=opset, do_constant_folding=True)
     finally:
         torch.Tensor.expand = _orig_expand
+    print(f"    [expand] {_n_skipped[0]} kimlik expand elendi")
+    _strip_timestamp_expand(path)
 
 
 def main() -> None:
