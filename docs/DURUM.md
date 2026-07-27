@@ -1464,3 +1464,38 @@ Kalan zincir: `qnn-onnx-converter` → `qnn-model-lib-generator` (C++ derlemesi)
 → `qnn-context-binary-generator`. Sonraki muhtemel eksikler derleyici/`make`
 tarafında olabilir; Colab'da `build-essential` kurulu olduğu için sorun
 beklemiyorum.
+
+## `uv.lock`'u silmek hataydı — onnx/protobuf sürümleri
+
+libc++ düzeldi, `qnn-onnx-converter` açıldı ama şununla öldü:
+
+```
+strCode_to_enum = {'i': onnx.AttributeProto.INT,
+AttributeError: 'NoneType' object has no attribute 'AttributeProto'
+```
+
+Yani SDK'nın onnx shim'i `None` dönmüş — QNN 2.28 kurulu onnx sürümünü
+desteklemiyor. Sebep bendeydi: CUDA torch'a geçerken
+
+```bash
+rm -rf .venv uv.lock          # <- HATA
+```
+
+yapmıştım. `uv.lock` resmi tarifin **test edilmiş sürümlerini** tutuyor; silince
+uv en güncelleri çekti (`onnx==1.22.0`, `protobuf==7.35.1`) ve QNN 2.28 (Ekim
+2024) bunlarla çalışmıyor.
+
+Düzeltme:
+
+* `pyproject.toml` ve `uv.lock` artık **hiç değiştirilmiyor**; koşu başında
+  paketten geri açılıyor (önceki koşuda bozulmuş olabilir).
+* CUDA torch, kilitli kurulumun **üstüne** ayrıca yükleniyor:
+  `uv sync` → `uv pip install torch==2.5.1 --index-url .../cu121`.
+  Böylece yalnızca torch değişiyor, onnx/protobuf/numpy kilitli kalıyor.
+* `.venv/.setup_version` damgası: kurulum şekli değişince ortam kendini
+  yeniliyor (bozuk venv'ler otomatik onarılıyor).
+* Koşu başında `onnx / protobuf / numpy / torch` sürümleri **loglanıyor** —
+  bir daha körlemesine olmayalım.
+
+**Ders:** resmi tarifin sabitlediği hiçbir şeye dokunmadan, yalnızca gerekeni
+üstüne eklemek. Sürüm kilidi tarifin parçası.

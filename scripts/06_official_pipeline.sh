@@ -103,26 +103,41 @@ if [ "$CUDA_TORCH" = "auto" ]; then
     CUDA_TORCH=0
   fi
 fi
-if [ "$CUDA_TORCH" = "1" ] && grep -q 'torch==2.5.1+cpu' pyproject.toml; then
-  echo "  [cuda] GPU bulundu -> pyproject.toml CUDA torch'a cevriliyor"
-  nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/         /'
-  CU="${CUDA_WHL:-cu121}"
-  sed -i "s|torch==2.5.1+cpu|torch==2.5.1|" pyproject.toml
-  sed -i "s|https://download.pytorch.org/whl/cpu|https://download.pytorch.org/whl/$CU|" pyproject.toml
-  rm -rf .venv uv.lock          # pin degisti -> ortam yeniden kurulmali
-elif [ "$CUDA_TORCH" = "1" ]; then
-  echo "  [cuda] pyproject zaten CUDA torch (ya da pin degismis)"
-else
-  echo "  [cuda] GPU yok/kapali -> CPU torch (prepare_data yavas olacak)"
+CU="${CUDA_WHL:-cu121}"
+
+# uv.lock RESMI TARIFIN TEST EDILMIS SURUMLERINI tutuyor. Onceki surumde CUDA
+# icin pyproject'i duzenleyip uv.lock'u SILMISTIK; uv o zaman en guncelleri
+# cekti (onnx 1.22, protobuf 7.35) ve QNN 2.28 onlarla calismiyor:
+#   AttributeError: 'NoneType' object has no attribute 'AttributeProto'
+# (SDK'nin onnx shim'i desteklenmeyen surumde None donuyor.)
+# Artik pyproject/uv.lock'a DOKUNMUYORUZ; CUDA torch kilitli kurulumun
+# USTUNE ayrica yukleniyor.
+ZIP_PATH="$(dirname "$SRC")/npuconvert.zip"
+if [ -f "$ZIP_PATH" ]; then
+  ( cd "$(dirname "$SRC")" && unzip -o -q "$ZIP_PATH" \
+      "npuconvertv2/pyproject.toml" "npuconvertv2/uv.lock" 2>/dev/null ) || true
 fi
 
+# Ortam damgasi: kurulum sekli degistiginde venv yeniden kurulsun.
+ENV_STAMP="$SRC/.venv/.setup_version"
+ENV_WANT="v2 cuda=$CUDA_TORCH $CU"
 VENV_PY="$SRC/.venv/bin/python"
-if [ ! -x "$VENV_PY" ]; then
-  echo "### resmi Python ortami kuruluyor (uv, ~3-5 dk)"
+if [ ! -x "$VENV_PY" ] || [ "$(cat "$ENV_STAMP" 2>/dev/null)" != "$ENV_WANT" ]; then
+  echo "### resmi Python ortami kuruluyor ($ENV_WANT)"
   command -v uv >/dev/null 2>&1 || pip install -q uv
   command -v uv >/dev/null 2>&1 || { echo "HATA: uv kurulamadi"; exit 1; }
   uv venv -p 3.10 --clear
-  uv sync
+  uv sync                       # KILITLI surumler — QNN 2.28 ile uyumlu
+  if [ "$CUDA_TORCH" = "1" ]; then
+    echo "  [cuda] CUDA torch kilitli kurulumun ustune ekleniyor ($CU)"
+    nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/         /'
+    uv pip install --python "$SRC/.venv/bin/python" "torch==2.5.1" \
+        --index-url "https://download.pytorch.org/whl/$CU" \
+      || echo "  [!] CUDA torch kurulamadi — CPU torch ile devam"
+  else
+    echo "  [cuda] GPU yok/kapali -> CPU torch (prepare_data yavas olacak)"
+  fi
+  echo "$ENV_WANT" > "$ENV_STAMP"
 fi
 if [ ! -x "$VENV_PY" ]; then
   echo "HATA: resmi Python ortami olusmadi -> $VENV_PY"
@@ -132,6 +147,15 @@ fi
 export PATH="$SRC/.venv/bin:$PATH"
 export VIRTUAL_ENV="$SRC/.venv"
 echo "  [python] $("$VENV_PY" -V)  ($VENV_PY)"
+"$VENV_PY" - <<'PYV' || true
+import importlib
+for m in ("onnx", "protobuf", "numpy", "torch"):
+    try:
+        mod = importlib.import_module("google.protobuf" if m == "protobuf" else m)
+        print(f"  [surum] {m:9s} {getattr(mod, '__version__', '?')}")
+    except Exception as e:
+        print(f"  [surum] {m:9s} YOK ({type(e).__name__})")
+PYV
 
 # ---- Modeli yerine koy ----------------------------------------------------
 # prepare_data.py/export_onnx.py --model_path bekliyor; mutlak yol veriyoruz.
