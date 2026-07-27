@@ -62,35 +62,16 @@ def main() -> None:
     # Opsiyonel (img2img)
     copy(os.path.join(args.qnn, "vae_encoder.bin"), "vae_encoder.bin", required=False)
 
-    # clip.mnn — referans paketlerde clip_v2.mnn ile birlikte bulunur
-    copy(os.path.join(args.mnn, "clip.mnn"), "clip.mnn", required=False)
-
-    # --- QNN runtime .so'lari (KRITIK) --------------------------------------
-    # Motor (QnnRuntime.hpp): g_backendPath = <lib_dir>/libQnnHtp.so
-    # Referans model zip'leri bu kutuphaneleri KENDI ICINDE tasir. Eksikse
-    # motor backend'i yukleyemez ve coker.
-    sdk = os.environ.get("QNN_SDK_ROOT", "")
-    if sdk:
-        aarch = os.path.join(sdk, "lib", "aarch64-android")
-        n = 0
-        for fn in ("libQnnHtp.so", "libQnnSystem.so"):
-            if copy(os.path.join(aarch, fn), fn, required=False):
-                n += 1
-        for v in ("68", "69", "73", "75", "79", "81"):
-            # Stub: aarch64-android ; Skel: hexagon-vXX/unsigned
-            if copy(os.path.join(aarch, f"libQnnHtpV{v}Stub.so"),
-                    f"libQnnHtpV{v}Stub.so", required=False):
-                n += 1
-            skel = os.path.join(sdk, "lib", f"hexagon-v{v}", "unsigned",
-                                f"libQnnHtpV{v}Skel.so")
-            if copy(skel, f"libQnnHtpV{v}Skel.so", required=False):
-                n += 1
-        print(f"    [QNN runtime] {n} kutuphane eklendi (SDK: {sdk})")
-        if n == 0:
-            print("    [!] UYARI: hic QNN .so eklenemedi — motor coksebilir!")
-    else:
-        print("    [!] UYARI: QNN_SDK_ROOT yok -> QNN runtime .so'lari "
-              "EKLENMEDI. Motor backend'i bulamayip cokebilir.")
+    # --- QNN runtime .so'lari PAKETE GIRMEZ ---------------------------------
+    # Once .so'lar da zip'e konuyordu; YANLIS. Motor (QnnRuntime.hpp::init)
+    # libQnnHtp.so / libQnnSystem.so'yu main.cpp'ye --lib_dir ile verilen
+    # dizinden yukluyor; bu dizin uygulamanin KENDI native lib klasoru, model
+    # klasoru degil. Referans paket (cyberrealistic_final_qnn2.28_min) da bunu
+    # dogruluyor: icinde hicbir .so yok. Ayni sekilde clip.mnn (tam CLIP) de
+    # pakette yok — yalnizca clip_v2.mnn kullaniliyor.
+    # Referans dosya listesi: clip_v2.mnn, pos_emb.bin, token_emb.bin,
+    #                         tokenizer.json, unet.bin, vae_decoder.bin,
+    #                         vae_encoder.bin
 
     # tokenizer.json (diffusers CLIPTokenizerFast bunu uretir)
     tok_json = os.path.join(args.tokenizer, "tokenizer.json")
