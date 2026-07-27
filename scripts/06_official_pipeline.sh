@@ -41,6 +41,10 @@ SOC="${4:-min}"
 SRC="$WORK/_official/npuconvertv2"
 [ -d "$SRC" ] || { echo "HATA: resmi scriptler yok -> $SRC
   Once FETCH_OFFICIAL=1 ile 0b adimini calistirin."; exit 1; }
+# TUM yollar MUTLAK olmali: asagida `cd "$SRC"` yapiyoruz ve goreli yollar
+# o andan itibaren yanlis yeri gosteriyor (ilk surumun hatasi buydu).
+SRC="$(cd "$SRC" && pwd)"
+DIST="$(pwd)/dist"
 
 CLIP_SKIP="${CLIP_SKIP:-2}"
 REALISTIC="${REALISTIC:-1}"      # CyberRealistic gibi foto modeller icin 1
@@ -59,6 +63,12 @@ case "$QNN_SDK_ROOT" in
 esac
 
 # Bizim scriptler goreli yol kullaniyor; resmi scriptler de oyle -> cd sart.
+if [ ! -s "$CKPT" ]; then
+  echo "HATA: model dosyasi yok/bos -> $CKPT"
+  echo "      Resmi hat safetensors'i DOGRUDAN kullaniyor (pipeline/ degil);"
+  echo "      not defterinin 5. adimini (Modeli indir) calistirin."
+  exit 1
+fi
 ABS_CKPT="$(cd "$(dirname "$CKPT")" && pwd)/$(basename "$CKPT")"
 ABS_SDK="$(cd "$QNN_SDK_ROOT" && pwd)"
 cd "$SRC"
@@ -68,15 +78,22 @@ cd "$SRC"
 # istiyor; Colab'in kendi surumleri bunlarla uyusmuyor ve redefined_modules
 # eski API'lere dayaniyor. Ayrica QNN 2.28 araclari da Python 3.10 istiyor —
 # ikisini TEK venv'de topluyoruz (pyproject zaten onnx/pandas/pyyaml iceriyor).
-if [ ! -x ".venv/bin/python" ]; then
+VENV_PY="$SRC/.venv/bin/python"
+if [ ! -x "$VENV_PY" ]; then
   echo "### resmi Python ortami kuruluyor (uv, ~3-5 dk)"
   command -v uv >/dev/null 2>&1 || pip install -q uv
+  command -v uv >/dev/null 2>&1 || { echo "HATA: uv kurulamadi"; exit 1; }
   uv venv -p 3.10 --clear
   uv sync
 fi
-VENV_PY="$SRC/.venv/bin/python"
+if [ ! -x "$VENV_PY" ]; then
+  echo "HATA: resmi Python ortami olusmadi -> $VENV_PY"
+  echo "      (uv venv/uv sync ciktisina bakin)"
+  exit 1
+fi
 export PATH="$SRC/.venv/bin:$PATH"
-echo "  [python] $("$VENV_PY" -V)"
+export VIRTUAL_ENV="$SRC/.venv"
+echo "  [python] $("$VENV_PY" -V)  ($VENV_PY)"
 
 # ---- Modeli yerine koy ----------------------------------------------------
 # prepare_data.py/export_onnx.py --model_path bekliyor; mutlak yol veriyoruz.
@@ -142,7 +159,6 @@ ls -la "$OUT" | sed 's/^/    /'
 # Referans paketlerde dosyalar ZIP KOKUNDE (klasor yok) — resmi export.sh
 # 'zip -r ... output_512/qnn_models_min' yaptigi icin orada klasorlu; biz
 # uygulamanin bekledigi duz yapiyi uretiyoruz.
-DIST="$(cd "$OLDPWD" 2>/dev/null || cd -; pwd)/dist"
 mkdir -p "$DIST"
 ZIP="$DIST/${NAME}_qnn2.28_${SOC}.zip"
 rm -f "$ZIP"

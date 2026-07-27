@@ -1344,3 +1344,26 @@ tam 16-bit aktivasyon kullanıyor ve çalışıyor.
    kökünde; referans paketler böyle)
 
 Kendi hattımız (adım 0-7) yerinde duruyor; `USE_OFFICIAL=0` ile geri dönülür.
+
+## Resmi hat ilk deneme: yol hatası (düzeltildi)
+
+```
+06_official_pipeline.sh: line 79: work/CyberRealistic/_official/npuconvertv2/.venv/bin/python:
+  No such file or directory
+```
+
+Benim hatam: `$SRC` göreli bir yoldu ve script `cd "$SRC"` yaptıktan sonra
+`$SRC/.venv/bin/python` artık `$SRC/$SRC/.venv/...` anlamına geliyordu.
+Düzeltmeler:
+
+* `SRC` ve `DIST` en başta mutlaklaştırılıyor.
+* Venv oluşmazsa script açık mesajla duruyor (sessizce devam edip ikinci bir
+  hatayla ölmüyordu).
+* `VIRTUAL_ENV` de ayarlanıyor — QNN 2.28 araçları `python3`'ü PATH'ten
+  bulacak.
+* Checkpoint kontrolü eklendi: resmi hat `.safetensors`'ı **doğrudan**
+  kullanıyor (bizim `pipeline/` klasörünü değil), o yüzden `KEEP_CKPT=1`
+  yapıldı — kendi hattımızın "pipeline hazır, checkpoint'i sil" davranışı
+  resmi hatta zarar verirdi.
+* `FETCH_OFFICIAL=0`: `USE_OFFICIAL` zaten eksikse indiriyor (döküm yapmadan),
+  her koşuda script içeriklerini basmaya gerek yok.
