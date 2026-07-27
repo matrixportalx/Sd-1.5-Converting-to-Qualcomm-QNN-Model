@@ -1160,3 +1160,41 @@ ihtimalle `qairt-converter` ve `qnn-context-binary-generator --dlc_path` yok;
 o sürüme geçmek eski hattı (`qnn-onnx-converter → qnn-model-lib-generator →
 --model <.so>`) baştan yazmayı gerektirir. Düğüm sıralaması tutarsa hiç gerek
 kalmaz; tutmazsa zaten o hatta geçeceğiz ve 2.28 elimizde olacak.
+
+## Resmi rehber elde edildi — yön değişiyor
+
+`ld-guide.chino.icu/conversion/sd15` içeriği paylaşıldı. Kritik maddeler:
+
+* **"Qualcomm AI Engine Direct SDK 2.28 — please use v2.28 to avoid potential
+  issues."** Sürüm tercih değil, şart olarak yazılmış.
+* **Resmi script paketi var: `npuconvertv2.zip`.**
+* Akış:
+  ```
+  prepare_data.py -> gen_quant_data.py -> export_onnx.py
+  -> scripts/convert_all.sh --min_soc min
+  ```
+  Çıktı `output/qnn_models_min/unet.bin`, paket `<ad>_qnn2.28_min.zip`.
+* Tier'lar: `min` = Hexagon V68+ bayrak dışı çipler (bizim hedefimiz),
+  `8gen1`, `8gen2`.
+* "Conversion process is extremely slow — several hours per resolution per chip
+  tier." Bizim hattımız kalibrasyonu küçülttüğü için dakikalar sürüyordu; bu
+  fark kaliteye yansıyor olabilir.
+* Ekstra çözünürlükler taban 512×512 UNet'e göre `zstd --patch-from` ile patch
+  olarak paketleniyor — bizim `_min` paketimizde bu yok, gerekmiyor.
+
+### Neden bu her şeyi değiştiriyor
+
+Günlerdir tersine mühendislikle aradığımız şey — `unet.bin`'in hangi araç
+zinciriyle üretildiği, dolayısıyla **girdi sırasının nasıl kontrol edildiği** —
+`scripts/convert_all.sh` içinde zaten yazılı. Tahmin etmeyi bırakıp onu okumak
+tek doğru adım.
+
+`scripts/fetch_official_scripts.py` (adım **0b**, `FETCH_OFFICIAL=1`):
+rehber sayfasından `npuconvert*.zip` linkini çıkarır (ya da
+`OFFICIAL_SCRIPTS_URL` ile elle verilir), indirir, açar ve
+`scripts/convert_all.sh`, `export_onnx.py`, `gen_quant_data.py`,
+`prepare_data.py` dosyalarını **loga döker**. `FETCH_ONLY=1` ile koşu hemen
+duruyor — saniyeler sürer.
+
+Not: 2.28 linki de elimizde (bkz. bir önceki bölüm), ama önce scriptleri okuyup
+hangi araçların gerektiğini görmek gerekiyor.

@@ -76,6 +76,23 @@ if [ "${PROBE_SDK:-0}" = "1" ]; then
   echo
 fi
 
+# ---- Resmi donusturme scriptleri (FETCH_OFFICIAL=1) ------------------------
+# Rehber (ld-guide.chino.icu/conversion/sd15) donusumun QNN 2.28 ile ve kendi
+# scriptleriyle (npuconvertv2.zip) yapilmasini soyluyor. Tersine muhendislikle
+# aradigimiz her sey — ozellikle unet.bin'in HANGI ARAC ZINCIRIYLE uretildigi —
+# orada yaziyor. Indirip kritik dosyalari loga dokuyoruz.
+if [ "${FETCH_OFFICIAL:-0}" = "1" ]; then
+  echo "### 0b) resmi donusturme scriptleri"
+  python3 "$SDIR/fetch_official_scripts.py" --dest "$WORK/_official" \
+      ${OFFICIAL_SCRIPTS_URL:+--url "$OFFICIAL_SCRIPTS_URL"} \
+    || echo "  [!] resmi scriptler alinamadi"
+  echo
+  if [ "${FETCH_ONLY:-0}" = "1" ]; then
+    echo "[*] FETCH_ONLY=1 -> scriptler alindi, donusum calistirilmadi"
+    exit 0
+  fi
+fi
+
 # ---- Girdi sirasi kurali yoklamasi (PROBE_ORDER=1) -------------------------
 # Gercek UNet ile her deneme ~4 dk. Ayni girdi imzasina sahip OYUNCAK modellerle
 # saniyeler icinde hangi kuralin sirayi belirledigini olcuyoruz. Olculenler:
