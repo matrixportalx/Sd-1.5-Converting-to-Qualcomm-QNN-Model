@@ -32,11 +32,17 @@ BASE = ("https://softwarecenter.qualcomm.com/api/download/software/sdks/"
 #   "Tool:Converter: Resolved an issue where the LayerNorm Op failed validation
 #    due to an unsupported data type. {153276}"
 # Ayrica 2.47.0'ta "Fixed a Convert Op issue in the mixed-precision stage".
+# ARTIK ASIL OLCUT SURUM NOTLARI DEGIL, UYGULAMANIN DERLENDIGI SURUM:
+# local-dream app/src/main/cpp/CMakeLists.txt -> QNN_SDK_ROOT=/data/qairt/2.39.0.250926
+# Context binary ILERIYE uyumlu degil; 2.40 ile uretilen .bin 2.39 runtime'inda
+# yuklenmiyor. O yuzden 2.39 ve daha ESKI surumler oncelikli.
 CANDIDATES = [
-    "2.40.0.251030", "2.47.0.260601",          # tam surum dizeleri bilinen
-    "2.41.0.251128", "2.42.0.251219", "2.43.0.260130",
-    "2.44.0.260227", "2.45.0.260327", "2.46.0.260424", "2.48.0.260626",
-    "2.28.0.241029", "2.32.0.250228",          # eski (referans surumu) — yedek
+    "2.39.0.250926",                           # uygulamanin derlendigi surum
+    "2.28.0.241029", "2.32.0.250228",          # referans paketlerin surumu + ara
+    "2.34.0.250424", "2.35.0.250530", "2.36.0.250627",
+    "2.37.0.250724", "2.38.0.250901",
+    "2.40.0.251030", "2.47.0.260601",          # ileri surumler (uygulama yeniden
+    "2.41.0.251128", "2.42.0.251219",          # derlenirse ise yarar)
 ]
 
 

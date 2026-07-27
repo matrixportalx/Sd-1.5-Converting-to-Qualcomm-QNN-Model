@@ -36,6 +36,12 @@ export PATH="$BIN:$PATH"
 export LD_LIBRARY_PATH="$LIB:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$QNN_SDK_ROOT/lib/python:${PYTHONPATH:-}"
 
+# Onbellek imzalarina SDK SURUMU de giriyor. Sebep: context binary'ler ILERIYE
+# uyumlu degil — 2.40 ile uretilen bir binary 2.39 runtime'inda yuklenmiyor
+# (uygulama CMakeLists.txt: QNN_SDK_ROOT=/data/qairt/2.39.0.250926). Surum
+# degistiginde DLC'ler ve .bin bayat sayilip yeniden uretilmeli.
+SDK_TAG="sdk=$(basename "$QNN_SDK_ROOT")"
+
 QNN_PY="${QNN_PYTHON:-}"
 [ -z "$QNN_PY" ] && [ -f /content/qnn_py.path ] && QNN_PY="$(cat /content/qnn_py.path)"
 [ -z "$QNN_PY" ] && QNN_PY="python3"
@@ -181,7 +187,7 @@ if [ -n "${IO_CONFIG:-}" ] && [ -f "${IO_CONFIG}" ]; then
   echo "  [io-config] $IO_CONFIG"
 fi
 C_SIG="$WORK/${GRAPH}.args"
-C_SIG_NEW="${CARGS[*]:-}"
+C_SIG_NEW="$SDK_TAG ${CARGS[*]:-}"
 if [ -f "$FP_DLC" ] && [ "${FORCE:-0}" != "1" ] \
    && [ "$(cat "$C_SIG" 2>/dev/null)" = "$C_SIG_NEW" ]; then
   echo "  [converter] ATLANDI ($FP_DLC guncel)"
@@ -269,7 +275,7 @@ PY
   fi
   # Kuantalayici argumanlari degistiyse DLC'yi yeniden uret (FORCE gerekmeden).
   Q_SIG="$WORK/${GRAPH}_q.args"
-  Q_SIG_NEW="a${ACT_BW} w${WEIGHT_BW} b${BIAS_BW} ${QARGS[*]:-}"
+  Q_SIG_NEW="$SDK_TAG a${ACT_BW} w${WEIGHT_BW} b${BIAS_BW} ${QARGS[*]:-}"
   if [ -f "$Q_DLC" ] && [ "${FORCE:-0}" != "1" ] \
      && [ "$(cat "$Q_SIG" 2>/dev/null)" = "$Q_SIG_NEW" ]; then
     echo "  [quantizer] ATLANDI ($Q_DLC guncel)"
@@ -301,7 +307,7 @@ fi
 # Context binary imzasi: kaynak DLC (boyut+mtime) + hedef mimari. Degismediyse
 # ~3 dk'lik uretimi atla; degistiyse otomatik yenile (FORCE gerekmez).
 B_SIG="$OUT/${OUT_NAME}.bin.args"
-B_SIG_NEW="$(stat -c '%s:%Y' "$DLC_FOR_BIN" 2>/dev/null) arch=${DSP_ARCH:-$TIER}"
+B_SIG_NEW="$SDK_TAG $(stat -c '%s:%Y' "$DLC_FOR_BIN" 2>/dev/null) arch=${DSP_ARCH:-$TIER}"
 if [ -f "$OUT/${OUT_NAME}.bin" ] && [ "${FORCE:-0}" != "1" ] \
    && [ "$(cat "$B_SIG" 2>/dev/null)" = "$B_SIG_NEW" ]; then
   echo "  [context-bin] ATLANDI ($OUT/${OUT_NAME}.bin guncel)"

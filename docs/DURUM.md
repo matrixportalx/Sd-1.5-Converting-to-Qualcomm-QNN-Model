@@ -834,3 +834,49 @@ karşılaştırma hatalıydı: araç `QNN_DATATYPE_UFIXED_POINT_16` döndürüyo
 Bu paket `FAST_TRIAL=1` ile üretildi (1 prompt x 2 adım kalibrasyon) — cihazda
 yüklenmesi beklenir ama **görüntü kalitesi düşüktür**. Yükleme doğrulanınca
 `OVERRIDE_FAST_TRIAL=0` ile bir kez daha koşulmalı.
+
+## Cihazda yüklenmedi — sebep: SDK sürümü (2.40 ≠ 2.39)
+
+Paket telefonda reddedildi:
+
+```
+[WARNING] QnnDsp <W> This META does not have Alloc2 Support
+[ INFO ] QnnDsp <I> QnnDevice_free done. status 0x0
+1940.6ms [ ERROR ] Could not free context
+Hata: Motor süreci beklenmedik şekilde kapandı (kod 1).
+```
+
+Sebep tipler değil (6c zaten UFIXED_POINT_16 / INT_32 gösteriyordu, o uyarı
+scriptin karşılaştırma hatasıydı). Sebep **QNN sürümü**. local-dream'in
+`app/src/main/cpp/CMakeLists.txt` dosyası:
+
+```cmake
+# QNN SDK PATH
+set(QNN_SDK_ROOT /data/qairt/2.39.0.250926)
+...
+file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtp.so ...)
+file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v68/unsigned/libQnnHtpV68Skel.so ...)
+```
+
+Yani uygulama QNN runtime'ını **2.39**'dan alıp APK'ya gömüyor. Context
+binary'ler **geriye** uyumludur, **ileriye değildir**:
+
+| binary | runtime | sonuç |
+|---|---|---|
+| 2.28 (referans paket) | 2.39 | çalışıyor ✓ |
+| **2.40 (bizim paket)** | 2.39 | **reddediliyor ✗** |
+
+Kaynakta bu uyumluluk açıkça düşünülmüş — `QnnModel.hpp`, eski binary'leri
+tanıyor: *"old (pre-2.35) context binaries report spillFillBufferSize == 0 in
+their metadata"*. Yani eskiyi yüklemeye hazır, yeniyi değil.
+
+Yapılanlar:
+* `config.env` → 2.39.0.250926.
+* `03_convert_qnn.sh`: önbellek imzalarına `SDK_TAG` eklendi. SDK sürümü
+  değişince DLC'ler ve `.bin` bayat sayılıp yeniden üretiliyor — yoksa 2.40 ile
+  üretilmiş DLC'den 2.39 binary'si çıkarmaya çalışırdık.
+* `probe_qairt_versions.py`: aday listesi uygulamanın sürümü etrafında yeniden
+  sıralandı (2.39 ve daha eskiler öncelikli).
+
+**Genel kural:** dönüşümde kullanılacak QAIRT sürümü, uygulamanın derlendiği
+QAIRT sürümüne eşit ya da ondan eski olmalı.
