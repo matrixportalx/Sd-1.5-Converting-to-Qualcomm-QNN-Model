@@ -76,6 +76,19 @@ if [ "${PROBE_SDK:-0}" = "1" ]; then
   echo
 fi
 
+# ---- Girdi sirasi kurali yoklamasi (PROBE_ORDER=1) -------------------------
+# Gercek UNet ile her deneme ~4 dk. Ayni girdi imzasina sahip OYUNCAK modellerle
+# saniyeler icinde hangi kuralin sirayi belirledigini olcuyoruz. Olculenler:
+#   ONNX bildirim sirasi / --config YAML sirasi / -s sirasi -> hepsi ETKISIZ.
+# Motor isimlere bakmadigi icin (QnnModel.hpp yalnizca inputs[0..2]), kural
+# "isim uzunlugu" gibi bir seyse girdileri yeniden adlandirarak cozebiliriz.
+if [ "${PROBE_ORDER:-0}" = "1" ]; then
+  echo "### 0a) girdi sirasi kurali yoklamasi (oyuncak modeller)"
+  "${QNN_PYTHON:-python3}" "$SDIR/probe_input_order.py" || \
+    echo "  [!] yoklama tamamlanamadi"
+  echo
+fi
+
 # Checkpoint gercekten var mi? Yoksa diffusers dosya yolunu HF repo adresi
 # sanip "Invalid pretrained_model_name_or_path" gibi alakasiz bir hata veriyor.
 if [ ! -f "$WORK/pipeline/model_index.json" ] && [ ! -s "$CKPT" ]; then

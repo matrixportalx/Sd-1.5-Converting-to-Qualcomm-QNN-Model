@@ -1012,3 +1012,51 @@ bozuk paket üretilmesin ve alternatif yolu bir tur kaybetmeden görelim.
 Ayrıca bu koşuda doğrulandı: `optimizationLevel` artık `O=3` yazılıyor ve
 2.28 SDK'sı Software Center'dan **inmiyor** (404); en eski erişilebilir sürüm
 2.32.
+
+## `-s` de etkisiz — sıra DLC yolunda sabit
+
+`--source_model_input_shape` üçü de istenen sırada verildi; binary sırası yine
+`[text_embedding, timestamp, sample]`. Üç mekanizma da ölçümle elendi:
+
+| mekanizma | sonuç |
+|---|---|
+| ONNX `graph.input` sırası | etkisiz |
+| `--config` YAML girdi sırası | etkisiz |
+| `--source_model_input_shape` sırası | etkisiz |
+
+### SDK envanteri: eski yol duruyor
+
+Envanter kritik: 2.39 hâlâ **`qnn-onnx-converter`** ve
+**`qnn-model-lib-generator`** içeriyor, ve `qnn-context-binary-generator`
+`--model=<qnn_model_name.so>` girdisini kabul ediyor:
+
+```
+[ --model=<val> ]  Path to the <qnn_model_name.so> file containing a QNN network.
+```
+
+Yani referansın üretildiği yol bu SDK'da mevcut:
+`ONNX → qnn-onnx-converter (model.cpp+bin) → qnn-model-lib-generator (.so) →
+qnn-context-binary-generator --model`. O yolda girdi sırası üretilen C++'taki
+bildirim sırasıdır, dolayısıyla kontrol edilebilir.
+
+### Önce ucuz teşhis: kural ne?
+
+Gerçek UNet ile her deneme ~4 dakika. `scripts/probe_input_order.py` aynı girdi
+imzasına (`sample [1,4,64,64]`, `timestamp [1] int32`,
+`text_embedding [1,77,768]`) sahip **oyuncak** modellerle saniyeler içinde dört
+senaryoyu ölçüyor:
+
+* **A** taban
+* **B** bildirim sırası ters
+* **C** isimler değiştirilmiş — gözlenen sıra azalan isim uzunluğuyla birebir
+  örtüşüyor (`text_embedding`=14 > `timestamp`=9 > `sample`=6); latent'e en uzun
+  ad verilirse sıra düzeliyor mu?
+* **D** grafta tüketim sırası ters
+
+**C önemli**, çünkü motor isimlere hiç bakmıyor — `QnnModel.hpp` yalnızca
+`inputs[0..2]` indekslerini kullanıyor, isim araması yok. Kural isim uzunluğuysa
+girdileri yeniden adlandırmak yeterli olur ve tüm boru hattı olduğu gibi kalır.
+Değilse eski yola geçeriz.
+
+`PROBE_ORDER=1` ile adım 0a olarak koşuyor. `COMPARE_REF` ve `PROBE_SDK`
+kapatıldı (işlerini gördüler; 2.28 indirilemiyor, en eski erişilebilir 2.32).
