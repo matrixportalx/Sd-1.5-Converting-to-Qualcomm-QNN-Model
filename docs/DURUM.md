@@ -1367,3 +1367,41 @@ Düzeltmeler:
   resmi hatta zarar verirdi.
 * `FETCH_OFFICIAL=0`: `USE_OFFICIAL` zaten eksikse indiriyor (döküm yapmadan),
   her koşuda script içeriklerini basmaya gerek yok.
+
+## Yeni not defteri: resmi hat + CUDA (SD15_NPU_Official_Colab.ipynb)
+
+Eski not defteri kendi hattımız (adım 0-7, `qairt-converter` → DLC) için
+yazılmıştı ve artık kullanmadığımız onlarca seçenek taşıyor. Yeni defter
+yalnızca resmi hattı koşuyor, 5 adım:
+
+1. **Ayarlar** — `SAFETENSORS_URL`, `MODEL_NAME`, `SOC`, `CLIP_SKIP`,
+   `REALISTIC`, `CALIB_LIMIT`, `CUDA_TORCH`
+2. **Depo + uv**
+3. **QNN SDK 2.28** (kaldığı yerden devam eden indirme)
+4. **Modeli indir** (`.safetensors` doğrudan kullanılıyor)
+5. **Dönüştür** → `scripts/06_official_pipeline.sh`
+6. **Paketi indir**
+
+`config.env` bu defterde devrede değil — form değerleri doğrudan ortam
+değişkeni olarak veriliyor. Eski defter ve `config.env` duruyor.
+
+### CUDA torch
+
+Resmi `pyproject.toml` torch'un **CPU** sürümünü sabitliyor
+(`torch==2.5.1+cpu` + `whl/cpu` indeksi), bu yüzden GPU'lu bir çalışma
+zamanında bile difüzyon CPU'da koşuyordu (~3.85 sn/adım). Rehber de bunu
+söylüyor: *"If you have a CUDA-capable GPU, you can edit pyproject.toml to use
+the GPU build of torch."*
+
+`06_official_pipeline.sh` artık `CUDA_TORCH` (varsayılan `auto`, `nvidia-smi`
+ile tespit) ile pyproject'i CUDA sürümüne çeviriyor (`CUDA_WHL`, varsayılan
+`cu121`) ve pin değiştiği için `.venv`/`uv.lock`'u yeniliyor.
+
+**Ölçü:** GPU yalnızca `prepare_data.py`'yi hızlandırır (~35 dk → ~3 dk).
+`qnn-onnx-converter` kuantizasyonu, `qnn-model-lib-generator` ve
+`qnn-context-binary-generator` **tamamen CPU**'dur; rehberdeki "saatler"in
+büyük kısmı orada ve GPU bunu değiştirmez. Yüksek bellekli çalışma zamanı ise
+şart (rehber: ~20 GB).
+
+Ayrıca `06_official_pipeline.sh` resmi scriptleri eksikse **kendisi indiriyor**,
+böylece yeni defterde ayrı bir adım gerekmiyor.

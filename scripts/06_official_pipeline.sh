@@ -38,9 +38,14 @@ SOC="${4:-min}"
 
 : "${QNN_SDK_ROOT:?QNN_SDK_ROOT ayarli olmali (2.28 olmali)}"
 
+SDIR_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$WORK/_official/npuconvertv2"
-[ -d "$SRC" ] || { echo "HATA: resmi scriptler yok -> $SRC
-  Once FETCH_OFFICIAL=1 ile 0b adimini calistirin."; exit 1; }
+if [ ! -d "$SRC" ]; then
+  echo "### resmi scriptler indiriliyor (npuconvertv2)"
+  python3 "$SDIR_SELF/fetch_official_scripts.py" --dest "$WORK/_official" \
+      ${OFFICIAL_SCRIPTS_URL:+--url "$OFFICIAL_SCRIPTS_URL"} --no-dump
+fi
+[ -d "$SRC" ] || { echo "HATA: resmi scriptler alinamadi -> $SRC"; exit 1; }
 # TUM yollar MUTLAK olmali: asagida `cd "$SRC"` yapiyoruz ve goreli yollar
 # o andan itibaren yanlis yeri gosteriyor (ilk surumun hatasi buydu).
 SRC="$(cd "$SRC" && pwd)"
@@ -78,6 +83,35 @@ cd "$SRC"
 # istiyor; Colab'in kendi surumleri bunlarla uyusmuyor ve redefined_modules
 # eski API'lere dayaniyor. Ayrica QNN 2.28 araclari da Python 3.10 istiyor —
 # ikisini TEK venv'de topluyoruz (pyproject zaten onnx/pandas/pyyaml iceriyor).
+# CUDA_TORCH: resmi pyproject torch'un CPU surumunu SABITLIYOR
+#     torch==2.5.1+cpu   +   index https://download.pytorch.org/whl/cpu
+# Bu yuzden GPU'lu bir calisma zamaninda bile difuzyon CPU'da kosuyor
+# (~3.85 sn/adim). Rehber de bunu soyluyor: "If you have a CUDA-capable GPU,
+# you can edit pyproject.toml to use the GPU build of torch."
+# NOT: GPU yalnizca prepare_data.py'yi hizlandirir. Kuantizasyon
+# (qnn-onnx-converter), model-lib-generator ve context-binary-generator
+# tamamen CPU'dur ve bundan etkilenmez.
+CUDA_TORCH="${CUDA_TORCH:-auto}"
+if [ "$CUDA_TORCH" = "auto" ]; then
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    CUDA_TORCH=1
+  else
+    CUDA_TORCH=0
+  fi
+fi
+if [ "$CUDA_TORCH" = "1" ] && grep -q 'torch==2.5.1+cpu' pyproject.toml; then
+  echo "  [cuda] GPU bulundu -> pyproject.toml CUDA torch'a cevriliyor"
+  nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/         /'
+  CU="${CUDA_WHL:-cu121}"
+  sed -i "s|torch==2.5.1+cpu|torch==2.5.1|" pyproject.toml
+  sed -i "s|https://download.pytorch.org/whl/cpu|https://download.pytorch.org/whl/$CU|" pyproject.toml
+  rm -rf .venv uv.lock          # pin degisti -> ortam yeniden kurulmali
+elif [ "$CUDA_TORCH" = "1" ]; then
+  echo "  [cuda] pyproject zaten CUDA torch (ya da pin degismis)"
+else
+  echo "  [cuda] GPU yok/kapali -> CPU torch (prepare_data yavas olacak)"
+fi
+
 VENV_PY="$SRC/.venv/bin/python"
 if [ ! -x "$VENV_PY" ]; then
   echo "### resmi Python ortami kuruluyor (uv, ~3-5 dk)"
@@ -103,6 +137,9 @@ REAL_FLAG=""
 # ---- 1) Kalibrasyon verisi (gercek difuzyon kosusu) -----------------------
 if [ ! -f "data.pkl" ]; then
   echo "### 1) prepare_data.py (20 prompt x difuzyon — EN UZUN ADIM)"
+  "$VENV_PY" -c "import torch;print('    [torch]', torch.__version__,
+        'cuda:', torch.cuda.is_available(),
+        torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')" || true
   "$VENV_PY" prepare_data.py --model_path "$ABS_CKPT" --clip_skip "$CLIP_SKIP" $REAL_FLAG
 else
   echo "### 1) prepare_data.py [ATLANDI - data.pkl var]"
