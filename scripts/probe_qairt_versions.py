@@ -25,10 +25,18 @@ BASE = ("https://softwarecenter.qualcomm.com/api/download/software/sdks/"
 
 # 2.28 hedef; komsulari da deniyoruz — 2.28 yoksa en yakin eski surum de ise
 # yarayabilir (16-bit MatMul/LayerNorm kisitlari 2.3x'te sikilasmis olabilir).
+# ASIL HEDEF ARTIK ILERI SURUMLER: QAIRT surum notlarina gore 2.40.0'ta tam
+# olarak bizim iki hatamiz duzeltilmis:
+#   "Tool:Converter: Resolved an issue where models with Conv2d ops failed on
+#    the HTP backend due to unsupported input or output data types. {153277}"
+#   "Tool:Converter: Resolved an issue where the LayerNorm Op failed validation
+#    due to an unsupported data type. {153276}"
+# Ayrica 2.47.0'ta "Fixed a Convert Op issue in the mixed-precision stage".
 CANDIDATES = [
-    "2.24.0.240626", "2.25.0.240728", "2.26.0.240828", "2.26.2.240911",
-    "2.27.0.240926", "2.28.0.241029", "2.28.2.241116", "2.29.0.241129",
-    "2.30.0.250109", "2.31.0.250130", "2.32.0.250228",
+    "2.40.0.251030", "2.47.0.260601",          # tam surum dizeleri bilinen
+    "2.41.0.251128", "2.42.0.251219", "2.43.0.260130",
+    "2.44.0.260227", "2.45.0.260327", "2.46.0.260424", "2.48.0.260626",
+    "2.28.0.241029", "2.32.0.250228",          # eski (referans surumu) — yedek
 ]
 
 

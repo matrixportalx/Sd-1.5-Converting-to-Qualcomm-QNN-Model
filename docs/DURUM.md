@@ -486,3 +486,42 @@ engellemiyor).
 Bir sürüm bulunursa `OVERRIDE_QAIRT_ASSET_URL` ile kullanılır:
 `setup_qnn_sdk.py` artık `config.env`'i **kendisi okuyor**, yani SDK sürümünü
 değiştirmek için de not defterine dokunmak gerekmiyor.
+
+## DÖNÜM NOKTASI: sorun eski SDK değil, YENİ SDK gerekiyor (2026-07-25)
+
+QAIRT resmi sürüm notları (2.34 → 2.48) incelendi. **Bizim iki hatamız da
+2.40.0'da (Ekim 2025) düzeltilmiş — yani 2.39'dan hemen sonra:**
+
+| bizim hata | 2.40.0 sürüm notu |
+|---|---|
+| `/unet/conv_in/Conv` "has incorrect Value 320, expected equal to 320" | *"Tool:Converter: Resolved an issue where models with **Conv2d ops failed on the HTP backend due to unsupported input or output data types**. {153277}"* |
+| `norm1/LayerNormalization` "None of the combinations match the provided case" | *"Tool:Converter: Resolved an issue where the **LayerNorm Op failed validation due to an unsupported data type**. {153276}"* |
+
+Ayrıca **2.39.0**'ın kendi notunda karma hassasiyet hatamızın sebebi yazıyor:
+
+> *"Tool:Converter: **Enabled support for dynamic 16-bit weights by default** in
+> qairt-converter and qairt-quantizer. … **A new `--disable_dynamic_16_bit_weights`
+> flag has been added to revert to 8-bit conversion if needed.** {147008}"*
+
+Bu tam olarak `mixedPrecisionForWeights: … 8 bit activations with 16 bit weights`
+hatasının sebebi: 2.39 MatMul'ün dinamik ikinci operandını **varsayılan olarak**
+16-bit'e çekiyor. Bayrak `--help`'te görünmüyor (gizli), bu yüzden
+`has_hidden_flag` ile doğrudan denenerek varlığı sınanıyor.
+
+2.47.0'da ek olarak: *"Tool:Converter: Fixed a Convert Op issue in the
+**mixed-precision stage**. {165230}"*
+
+### Sonuç
+
+Aylardır 2.28'i aradık; oysa referansın 2.28 ile çalışması, 2.39'un **geçici
+olarak bozuk** olmasıyla açıklanıyor. **2.40+ indirilebilir durumda** —
+2.28'in aksine.
+
+- `config.env` artık QAIRT **2.40.0.251030**'u kullanıyor
+  (`OVERRIDE_QAIRT_ASSET_URL`), `UNET_MODE=a16w8_restrict`.
+- `setup_qnn_sdk.py` sürümleri **ayrı dizinlere** açıyor (2.39 üzerine yazmıyor).
+- Yoklama listesi ileri sürümlerle güncellendi (2.40 – 2.48).
+- İnmezse yoklama çıktısındaki başka bir sürüme geçmek `config.env`'de tek satır.
+
+Honor 90 / Snapdragon 7 Gen 1 (HTP v69) desteğiyle ilgili **kaldırma yok** —
+sürüm notlarında böyle bir madde geçmiyor; sorun baştan beri araç zinciriydi.

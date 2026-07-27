@@ -64,6 +64,21 @@ conv_help() {
 }
 has_cflag() { conv_help | grep -q -- "$1"; }
 
+# QAIRT 2.39 surum notu: "Enabled support for dynamic 16-bit weights BY DEFAULT
+# in qairt-converter and qairt-quantizer ... A new --disable_dynamic_16_bit_weights
+# flag has been added to revert to 8-bit conversion if needed." {147008}
+#
+# Bizim hatamiz tam olarak bu: karma hassasiyette MatMul'un ikinci operandi
+# ("agirlik") 16-bit'e cekiliyor ve
+#   "8 bit activations with 16 bit weights are not supported on backend"
+# cikiyor. Bayrak --help'te GORUNMUYOR (gizli), bu yuzden dogrudan deneyerek
+# varligini sinariyoruz: yoksa "unrecognized arguments" der.
+has_hidden_flag() {  # tool flag
+  local out
+  out="$("$QNN_PY" "$BIN/$1" "$2" 2>&1 || true)"
+  ! printf '%s' "$out" | grep -q "unrecognized arguments"
+}
+
 # Graf I/O'sunu 16-bit yapip ic hesabi 8-bit birakmanin resmi yolu:
 # qairt-converter --dump_config_template <yaml> -> duzenle -> --config <yaml>
 # Sablonu bir kez dokup logliyoruz (saniyeler surer, semayi gormek icin).
@@ -145,6 +160,12 @@ CARGS=("${BE_C[@]+"${BE_C[@]}"}")
 # QUANT_OVERRIDES: karma hassasiyet (16-bit graf I/O + 8-bit ic hesap).
 if [ -n "${QUANT_OVERRIDES:-}" ] && [ -f "${QUANT_OVERRIDES}" ]; then
   CARGS+=(--quantization_overrides "$QUANT_OVERRIDES")
+  # Karma hassasiyette MatMul agirliklarinin 16-bit'e cekilmesini engelle
+  if [ "${DISABLE_DYN16W:-1}" = "1" ] \
+     && has_hidden_flag qairt-converter --disable_dynamic_16_bit_weights; then
+    CARGS+=(--disable_dynamic_16_bit_weights)
+    echo "  [dyn16w] converter: --disable_dynamic_16_bit_weights"
+  fi
 fi
 C_SIG="$WORK/${GRAPH}.args"
 C_SIG_NEW="${CARGS[*]:-}"
@@ -222,6 +243,10 @@ PY
     if [ "${PER_CHANNEL:-0}" = "1" ] && has_qflag "--use_per_channel_quantization"; then
       QARGS+=(--use_per_channel_quantization)
     fi
+  fi
+  if [ -n "${QUANT_OVERRIDES:-}" ] && [ "${DISABLE_DYN16W:-1}" = "1" ] \
+     && has_hidden_flag qairt-quantizer --disable_dynamic_16_bit_weights; then
+    QARGS+=(--disable_dynamic_16_bit_weights)
   fi
   # QUANT_EXTRA: notebook'tan serbest bayrak gecisi (kod duzenlemeden deneme).
   # ornek: QUANT_EXTRA="--target_backend HTP --act_quantizer_calibration mse"

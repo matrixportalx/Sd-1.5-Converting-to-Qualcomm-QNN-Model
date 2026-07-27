@@ -152,7 +152,19 @@ def main():
                 args.repo = val
                 print(f"[config.env] repo = {val}")
 
+    # Surumler AYRI dizinlere acilir; yoksa 2.39 uzerine yazip karisir ve
+    # "zaten acik" kontrolu eski surumu dondurur.
+    if args.asset_url:
+        key = os.path.basename(urllib.parse.urlparse(args.asset_url).path)
+    else:
+        key = args.tag or "default"
+    for ext in ARCHIVE_EXTS:
+        if key.endswith(ext):
+            key = key[: -len(ext)]
+            break
+    args.dest = os.path.join(args.dest, key.lstrip("v"))
     os.makedirs(args.dest, exist_ok=True)
+    print(f"[*] SDK dizini: {args.dest}")
 
     # SDK zaten acilmissa hic dokunma (yeniden acmak dakikalar suruyor)
     existing = find_sdk_root(args.dest)
