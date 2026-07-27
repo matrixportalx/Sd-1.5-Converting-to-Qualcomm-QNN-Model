@@ -203,22 +203,47 @@ else
 fi
 
 # ---- 3b) Sistem bagimliliklari --------------------------------------------
-# QNN 2.28'in Python baglantilari (libPyIrGraph) LLVM libc++'a bagli:
-#   ImportError: libc++.so.1: cannot open shared object file
-# Colab imajinda yok; SDK da kendi kopyasini tasimiyor.
-if ! ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1'; then
-  echo "### 3b) libc++ kuruluyor (QNN 2.28 python baglantilari icin)"
+# Colab imajinda iki sey eksik:
+#   1) libc++  — QNN 2.28'in Python baglantilari (libPyIrGraph) LLVM libc++'a
+#      bagli: "ImportError: libc++.so.1: cannot open shared object file"
+#   2) clang++ — qnn-model-lib-generator uretilen model.cpp'yi clang ile
+#      derliyor: "Could not find compiler: clang++"
+_need_libcxx=0; _need_clang=0
+ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1' || _need_libcxx=1
+command -v clang++ >/dev/null 2>&1 || _need_clang=1
+if [ "$_need_libcxx" = "1" ] || [ "$_need_clang" = "1" ]; then
+  echo "### 3b) sistem bagimliliklari kuruluyor" \
+       "$([ "$_need_libcxx" = 1 ] && echo libc++)" \
+       "$([ "$_need_clang" = 1 ] && echo clang)"
   (apt-get -qq update -y >/dev/null 2>&1 || true)
-  if ! apt-get -qq install -y libc++1 libc++abi1 >/dev/null 2>&1; then
-    apt-get -qq install -y libc++1-14 libc++abi1-14 >/dev/null 2>&1 || true
+  if [ "$_need_libcxx" = "1" ]; then
+    apt-get -qq install -y libc++1 libc++abi1 >/dev/null 2>&1 \
+      || apt-get -qq install -y libc++1-14 libc++abi1-14 >/dev/null 2>&1 || true
+  fi
+  if [ "$_need_clang" = "1" ]; then
+    apt-get -qq install -y clang >/dev/null 2>&1 \
+      || apt-get -qq install -y clang-14 >/dev/null 2>&1 || true
+    # bazi paketler yalnizca clang++-14 birakiyor -> genel adi baglayalim
+    if ! command -v clang++ >/dev/null 2>&1; then
+      for v in 18 17 16 15 14; do
+        if command -v "clang++-$v" >/dev/null 2>&1; then
+          ln -sf "$(command -v "clang++-$v")" /usr/local/bin/clang++
+          ln -sf "$(command -v "clang-$v")" /usr/local/bin/clang 2>/dev/null || true
+          break
+        fi
+      done
+    fi
   fi
   ldconfig 2>/dev/null || true
-  if ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1'; then
-    echo "  [deps] libc++ hazir"
-  else
-    echo "  [!] libc++ kurulamadi — qnn-onnx-converter calismayabilir"
-    echo "      Elle: apt-get install -y libc++1 libc++abi1"
-  fi
+fi
+ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1' \
+  && echo "  [deps] libc++ hazir" \
+  || echo "  [!] libc++ YOK — qnn-onnx-converter calismayabilir"
+if command -v clang++ >/dev/null 2>&1; then
+  echo "  [deps] $(clang++ --version 2>/dev/null | head -1)"
+else
+  echo "  [!] clang++ YOK — qnn-model-lib-generator derleyemez"
+  echo "      Elle: apt-get install -y clang"
 fi
 
 # ---- 4) QNN donusumu ------------------------------------------------------

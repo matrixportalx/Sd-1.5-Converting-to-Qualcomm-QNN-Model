@@ -1499,3 +1499,40 @@ Düzeltme:
 
 **Ders:** resmi tarifin sabitlediği hiçbir şeye dokunmadan, yalnızca gerekeni
 üstüne eklemek. Sürüm kilidi tarifin parçası.
+
+## QNN dönüşümü çalıştı — kalan tek eksik clang++
+
+Sürümler kilitten geldi ve `qnn-onnx-converter` **çalıştı**:
+
+```
+[surum] onnx      1.18.0
+[surum] protobuf  5.29.5
+[surum] numpy     1.26.4
+...
+Model CPP saved at: .../vae_encoder/model.cpp
+Model BIN saved at: .../vae_encoder/model.bin
+Conversion complete!
+```
+
+Yani kuantizasyon + `model.cpp` üretimi tamam. Takılan yer bir sonraki araç:
+
+```
+RuntimeError: Could not build target: x86_64-linux-clang
+Could not find compiler: clang++
+```
+
+`qnn-model-lib-generator` üretilen `model.cpp`'yi **clang** ile derliyor;
+Colab imajında gcc var, clang yok. Adım 3b artık ikisini birden kontrol edip
+kuruyor (`libc++1 libc++abi1` + `clang`), sürümlü paket adlarına düşüyor ve
+gerekirse `clang++-NN`'i `/usr/local/bin/clang++`'a bağlıyor.
+
+### Süre uyarısı: kuantizasyon CPU'da ve örnek sayısıyla doğru orantılı
+
+VAE encoder'ın kuantizasyonu **20 örnek için ~5 dakika** sürdü (örnek başına
+~15 sn, CPU). UNet çok daha ağır ve `CALIB_LIMIT=150` ile 150 örnek işleyecek.
+Kaba tahmin **1-2 saat**. GPU bunu hızlandırmıyor — `qnn-onnx-converter`
+tamamen CPU.
+
+Kalibrasyon listeleri **kalıcı olarak kırpılıyor** (400 → 150). Daha aza inmek
+serbest; geri çıkmak için `input_list_*.txt` silinip `gen_quant_data.py`
+yeniden çalıştırılmalı (`data.pkl` durduğu için saniyeler sürer).
