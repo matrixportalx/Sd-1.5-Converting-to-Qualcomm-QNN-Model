@@ -76,6 +76,21 @@ if [ "${PROBE_SDK:-0}" = "1" ]; then
   echo
 fi
 
+# Checkpoint gercekten var mi? Yoksa diffusers dosya yolunu HF repo adresi
+# sanip "Invalid pretrained_model_name_or_path" gibi alakasiz bir hata veriyor.
+if [ ! -f "$WORK/pipeline/model_index.json" ] && [ ! -s "$CKPT" ]; then
+  echo
+  echo "########################################################################"
+  echo " HATA: model dosyasi yok -> $CKPT"
+  echo
+  echo " Calisma zamani sifirlandiginda work/ silinir. Once NOT DEFTERININ"
+  echo " 5. ADIMINI (Modeli indir) calistirin, sonra 6. adima donun."
+  echo
+  echo " Sifirdan bir oturumda dogru sira:  2 -> 4 -> 5 -> 6"
+  echo "########################################################################"
+  exit 1
+fi
+
 # ---- 0) safetensors -> diffusers ------------------------------------------
 if [ "$FORCE" = 0 ] && [ -f "$WORK/pipeline/model_index.json" ]; then
   echo "### 0) safetensors -> diffusers [ATLANDI]"
