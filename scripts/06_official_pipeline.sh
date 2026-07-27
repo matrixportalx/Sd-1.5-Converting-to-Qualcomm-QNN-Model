@@ -78,6 +78,10 @@ ABS_CKPT="$(cd "$(dirname "$CKPT")" && pwd)/$(basename "$CKPT")"
 ABS_SDK="$(cd "$QNN_SDK_ROOT" && pwd)"
 cd "$SRC"
 
+# ZIP calistirma bitlerini korumuyor -> paketle gelen MNNConvert ikilisi ve
+# .sh scriptleri "Permission denied" veriyor (convert_clip.sh line 6).
+chmod +x MNNConvert scripts/*.sh 2>/dev/null || true
+
 # ---- Python ortami --------------------------------------------------------
 # Resmi pyproject.toml diffusers==0.31.0 / transformers==4.46.1 / numpy 1.26.4
 # istiyor; Colab'in kendi surumleri bunlarla uyusmuyor ve redefined_modules

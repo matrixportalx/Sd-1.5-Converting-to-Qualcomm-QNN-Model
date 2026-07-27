@@ -1405,3 +1405,33 @@ büyük kısmı orada ve GPU bunu değiştirmez. Yüksek bellekli çalışma zam
 
 Ayrıca `06_official_pipeline.sh` resmi scriptleri eksikse **kendisi indiriyor**,
 böylece yeni defterde ayrı bir adım gerekmiyor.
+
+## Resmi hat: her şey geçti, tek engel çalıştırma izni
+
+İlk tam koşuda **tüm ağır adımlar başarılı** oldu:
+
+* `prepare_data.py` — 20 prompt × difüzyon, ~35 dk, `images/1..20.png` üretildi
+* `gen_quant_data.py` — **924 geçerli UNet örneği**, 400'e indirildi,
+  `CALIB_LIMIT=24` ile 24'e kırpıldı
+* `export_onnx.py` — `redefined_modules` ile UNet/CLIP/VAE ONNX'leri
+* QNN 2.28 ortamı — `[INFO] AISW SDK environment set`, `QNN_SDK_ROOT` doğru
+
+Tek hata:
+
+```
+scripts/convert_clip.sh: line 6: ./MNNConvert: Permission denied
+```
+
+ZIP çalıştırma bitlerini korumuyor; pakette gelen `MNNConvert` ikilisi ve `.sh`
+scriptleri bu yüzden çalışmıyor. (QNN SDK'da da aynısını yaşamış ve
+`make_bins_executable` ile çözmüştük.)
+
+Düzeltme iki yerde:
+* `fetch_official_scripts.py` — açtıktan sonra `MNNConvert` ve `*.sh` için
+  `chmod +x`
+* `06_official_pipeline.sh` — `cd "$SRC"` sonrası aynı `chmod` (zaten açılmış
+  paketler için; yeniden indirmeye gerek kalmasın)
+
+`data.pkl`, `images/` ve `unet/model.onnx` önbellekte olduğu için koşu
+tekrarlandığında doğrudan 4. adımdan (QNN dönüşümü) devam eder — 35 dakika
+yeniden ödenmez.

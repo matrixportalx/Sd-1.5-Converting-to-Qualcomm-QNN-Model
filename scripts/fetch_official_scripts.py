@@ -96,6 +96,19 @@ def main() -> None:
         names = zf.namelist()
         zf.extractall(args.dest)
     print(f"[+] {len(names)} dosya acildi")
+
+    # ZIP calistirma bitlerini korumuyor: pakette gelen MNNConvert ikilisi ve
+    # .sh scriptleri aksi halde "Permission denied" veriyor.
+    n_exec = 0
+    for n in names:
+        base = os.path.basename(n)
+        if base == "MNNConvert" or base.endswith(".sh"):
+            f = os.path.join(args.dest, n)
+            if os.path.isfile(f):
+                os.chmod(f, os.stat(f).st_mode | 0o111)
+                n_exec += 1
+    if n_exec:
+        print(f"[+] {n_exec} dosyaya calistirma izni verildi")
     print("\n--- ICERIK ---")
     for n in sorted(names):
         print("   ", n)
