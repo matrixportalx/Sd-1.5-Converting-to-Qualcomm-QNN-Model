@@ -973,3 +973,42 @@ olduğunu tahmin etmek yerine **ölçüp tersini uyguluyoruz**:
 * `check_bin_io.py` — adım 6c artık tiplerin yanı sıra **sırayı** da denetliyor.
 * `gen_htp_config.py --graph` — `graphs[{graph_names, O}]` bloğu eklendi,
   `O=3` (referansla aynı).
+
+## Sıra ONNX'ten gelmiyor — ölçüldü
+
+Adım 4b çalıştı, permütasyonu ölçtü, ONNX girdi sırasını tersine çevirdi ve
+UNet'i yeniden üretti. Sonuç:
+
+```
+1. üretim:  onnx [sample, timestamp, text_embedding]
+            binary [text_embedding, timestamp, sample]
+2. üretim:  onnx [text_embedding, timestamp, sample]     <- ters cevrildi
+            binary [text_embedding, timestamp, sample]   <- DEGISMEDI
+```
+
+Yani binary'nin `graphInputs` sırası **ONNX'teki bildirim sırasından bağımsız**;
+sabit. `--config` YAML'ındaki sıra da etkilemiyor (birinci üretimde YAML
+kanonik, ikincide ters — binary aynı kaldı).
+
+Elenen mekanizmalar:
+1. ONNX `graph.input` sırası — etkisiz (ölçüldü)
+2. `--config` YAML'daki girdi bloğu sırası — etkisiz (ölçüldü)
+
+Kalan resmi aday: **`--source_model_input_shape` (-s)**. Yardım metni "the name
+and dimension of **all the input buffers** to the network" diyor; dönüştürücünün
+girdi listesini bu argümanlardan kurması makul. `scripts/onnx_input_shapes.py`
+şekilleri ONNX'ten istenen sırada üretiyor, `03_convert_qnn.sh` bunları
+`IO_ORDER` ile `-s` argümanlarına çeviriyor.
+
+Olası açıklama: referans paket 2.28'in **eski** `qnn-onnx-converter → model.cpp
+→ .so` yolundan üretilmiş olabilir; orada girdi sırası üretilen C++'taki
+bildirim sırasıdır. Bizim yol DLC → `QnnSystemDlc_composeGraphs`, farklı.
+
+Adım 4b artık ONNX'i permute etmeyi denemiyor (işe yaramadığı ölçüldü):
+doğruluyor, başarısızsa **SDK bin envanterini ve
+`qnn-context-binary-generator --help` çıktısını döküp** koşuyu durduruyor —
+bozuk paket üretilmesin ve alternatif yolu bir tur kaybetmeden görelim.
+
+Ayrıca bu koşuda doğrulandı: `optimizationLevel` artık `O=3` yazılıyor ve
+2.28 SDK'sı Software Center'dan **inmiyor** (404); en eski erişilebilir sürüm
+2.32.

@@ -105,6 +105,11 @@ def main() -> None:
     ap.add_argument("--onnx", required=True)
     ap.add_argument("--bin", required=True)
     ap.add_argument("--want", default="sample,timestamp,text_embedding")
+    ap.add_argument("--fix-onnx", action="store_true",
+                    help="ONNX girdi sirasini permute etmeyi dene. OLCULDU: "
+                         "binary sirasini DEGISTIRMIYOR, o yuzden varsayilan "
+                         "kapali. Sira artik --source_model_input_shape ile "
+                         "veriliyor (bkz. 03_convert_qnn.sh IO_ORDER).")
     args = ap.parse_args()
 
     want = [w.strip() for w in args.want.split(",") if w.strip()]
@@ -118,6 +123,10 @@ def main() -> None:
 
     cur_onnx = onnx_input_order(args.onnx)
     print(f"  [sira] onnx     : {cur_onnx}")
+    if not args.fix_onnx:
+        print("  [sira] UYUSMAZLIK — motor tensorleri indeksle yazdigi icin bu")
+        print("         paket cihazda yuklenmez (kod 1 / Could not free context).")
+        sys.exit(3)
     new_onnx = corrected_onnx_order(cur_onnx, cur_bin, want)
     if new_onnx == cur_onnx:
         raise SystemExit(

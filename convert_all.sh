@@ -269,7 +269,7 @@ echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
 disk_report "adim 4 oncesi"
 ( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
     RESTRICT_STEPS="$U_RESTRICT" QUANT_OVERRIDES="$U_OVERRIDES" \
-    IO_CONFIG="$U_IO_CONFIG" \
+    IO_CONFIG="$U_IO_CONFIG" IO_ORDER="${IO_ORDER:-sample,timestamp,text_embedding}" \
     ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
     model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 
@@ -288,26 +288,29 @@ if [ "${CHECK_INPUT_ORDER:-1}" = "1" ] && [ -f "$WORK/qnn/unet.bin" ]; then
       --bin "$WORK/qnn/unet.bin"
   _ord_rc=$?
   set -e
-  if [ "$_ord_rc" = "2" ]; then
-    echo "  [sira] UNet yeniden uretiliyor (duzeltilmis ONNX ile)"
-    # io-config sirayi ONNX'ten okuyor -> ONNX degistiyse YAML de yenilenmeli.
-    if [ -n "$U_IO_CONFIG" ]; then
-      python3 "$SDIR/gen_io_config.py" --calib "$WORK/calib/$TAG" \
-          --output "$WORK/onnx/unet_io_config.yaml" \
-          --dtype "${IO_DTYPE:-uint16}" \
-          --onnx "$WORK/onnx/unet_${TAG}.onnx"
-    fi
-    ( cd "$SDIR" && FORCE=1 ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
-        RESTRICT_STEPS="$U_RESTRICT" QUANT_OVERRIDES="$U_OVERRIDES" \
-        IO_CONFIG="$U_IO_CONFIG" \
-        ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
-        model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
-    echo "  [sira] yeniden uretim sonrasi kontrol:"
-    python3 "$SDIR/fix_input_order.py" --onnx "$WORK/onnx/unet_${TAG}.onnx" \
-        --bin "$WORK/qnn/unet.bin" \
-      || { echo "!!! GIRDI SIRASI DUZELTILEMEDI — paket cihazda yuklenmez."; exit 1; }
-  elif [ "$_ord_rc" != "0" ]; then
-    echo "  [sira] kontrol yapilamadi (kod $_ord_rc)"
+  if [ "$_ord_rc" != "0" ]; then
+    echo
+    echo "########################################################################"
+    echo " GIRDI SIRASI DUZELTILEMEDI — paket cihazda yuklenmez, uretilmiyor."
+    echo
+    echo " Denenenler:"
+    echo "   1) ONNX graph.input sirasini degistirmek  -> binary sirasi DEGISMEDI"
+    echo "   2) --config YAML'da girdi sirasi          -> binary sirasi DEGISMEDI"
+    echo "   3) --source_model_input_shape (-s) sirasi -> bu kosuda denendi"
+    echo
+    echo " Referans (calisan) paket DLC yolundan degil, 2.28'in eski"
+    echo " qnn-onnx-converter -> model.cpp -> .so yolundan uretilmis olabilir;"
+    echo " orada girdi sirasi bildirim sirasidir. Asagidaki envanter hangi"
+    echo " alternatif yolun bu SDK'da mevcut oldugunu gosterir."
+    echo "########################################################################"
+    echo
+    echo "--- $QNN_SDK_ROOT/bin/x86_64-linux-clang ---"
+    ls -1 "$QNN_SDK_ROOT/bin/x86_64-linux-clang" 2>/dev/null | sed 's/^/    /'
+    echo
+    echo "--- qnn-context-binary-generator --help (girdi yollari) ---"
+    "$QNN_SDK_ROOT/bin/x86_64-linux-clang/qnn-context-binary-generator" --help 2>&1 \
+      | sed 's/^/    /' | head -60
+    exit 1
   fi
 fi
 

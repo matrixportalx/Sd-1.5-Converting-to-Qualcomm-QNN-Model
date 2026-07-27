@@ -182,6 +182,26 @@ fi
 # IO_CONFIG: SDK'nin I/O yapilandirma YAML'i (--dump_config_template semasi).
 # 16-bit graf sinirini YALNIZCA sinirda tutar; --quantization_overrides gibi
 # etiketi ic grafa (to_k/to_v MatMul) tasimaz.
+# ---- GIRDI SIRASI --------------------------------------------------------
+# Motor tensorleri ISIMLE DEGIL INDEKSLE yaziyor (QnnModel.hpp):
+#   inputs[0]=latents(16384 uint16) inputs[1]=timestep(int32)
+#   inputs[2]=text_embedding(59136 uint16)
+# Sira ters olursa 59136 eleman 16384'luk tampona yazilir ve surec "kod 1" ile
+# oluyor. ONNX'teki graph.input sirasini degistirmek BINARY sirasini
+# DEGISTIRMIYOR (olculdu). Kalan resmi kanal --source_model_input_shape:
+#   "The name and dimension of ALL the input buffers to the network"
+# Argumanlari istenen sirada veriyoruz.
+if [ -n "${IO_ORDER:-}" ] && has_cflag "--source_model_input_shape"; then
+  _n=0
+  while IFS=$'\t' read -r _name _dims; do
+    [ -z "$_name" ] && continue
+    CARGS+=(--source_model_input_shape "$_name" "$_dims")
+    _n=$((_n+1))
+  done < <("$QNN_PY" "$SCRIPT_DIR/onnx_input_shapes.py" --onnx "$ONNX" \
+             --order "$IO_ORDER" 2>/dev/null)
+  [ "$_n" -gt 0 ] && echo "  [sira] -s ile $_n girdi su sirada: $IO_ORDER"
+fi
+
 if [ -n "${IO_CONFIG:-}" ] && [ -f "${IO_CONFIG}" ]; then
   CARGS+=(--config "$IO_CONFIG")
   echo "  [io-config] $IO_CONFIG"
