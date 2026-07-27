@@ -570,3 +570,26 @@ ağırlıklarına sızamaz.
 Ayrıca Clip bariyeri kaldırıldı (export v13): converter opset-13 Clip'i
 desteklemiyor ("Expected operator version: [1, 6, 11, 12]") ve `--config`
 yoluyla artık gereksiz. `UNET_CLIP_BARRIER=1` ile geri açılabilir.
+
+## `--config` kabul edildi, kalan tek engel dinamik 16-bit ağırlıklar (2026-07-27)
+
+`a8w8_io16cfg` koşusu: converter YAML'i kabul etti
+("Validating user provided custom IO") ve dönüşüm başarılı. Kuantalayıcı yine
+aynı yerde düştü — **ama sebebi artık farklı:**
+
+```
+[quantizer] a8 w8 b32 --target_backend HTP        <- --disable_dynamic_16_bit_weights YOK
+mixedPrecisionForWeights: .../attn2/MatMul_1
+```
+
+Bayrak, kodda yanlışlıkla `QUANT_OVERRIDES` doluysa eklenecek şekilde
+koşullanmıştı; `io16cfg` modunda o değişken boş olduğu için hiç geçmedi.
+Oysa 2.39 sürüm notuna göre bu davranış **varsayılan olarak açık** ve
+override/config'ten bağımsız:
+
+> *"Enabled support for dynamic 16-bit weights **by default** … A new
+> `--disable_dynamic_16_bit_weights` flag has been added to revert to 8-bit
+> conversion if needed."*
+
+Artık bayrak koşulsuz veriliyor (converter + quantizer), yani 2.39 öncesi —
+referansın üretildiği — davranışa dönülüyor. `DISABLE_DYN16W=0` ile kapatılır.

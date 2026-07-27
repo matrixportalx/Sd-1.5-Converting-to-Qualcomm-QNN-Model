@@ -160,12 +160,18 @@ CARGS=("${BE_C[@]+"${BE_C[@]}"}")
 # QUANT_OVERRIDES: karma hassasiyet (16-bit graf I/O + 8-bit ic hesap).
 if [ -n "${QUANT_OVERRIDES:-}" ] && [ -f "${QUANT_OVERRIDES}" ]; then
   CARGS+=(--quantization_overrides "$QUANT_OVERRIDES")
-  # Karma hassasiyette MatMul agirliklarinin 16-bit'e cekilmesini engelle
-  if [ "${DISABLE_DYN16W:-1}" = "1" ] \
-     && has_hidden_flag qairt-converter --disable_dynamic_16_bit_weights; then
-    CARGS+=(--disable_dynamic_16_bit_weights)
-    echo "  [dyn16w] converter: --disable_dynamic_16_bit_weights"
-  fi
+fi
+# 2.39'dan beri dinamik 16-bit agirliklar VARSAYILAN OLARAK ACIK; MatMul'un
+# dinamik ikinci operandi 16-bit'e cekiliyor ve 8-bit aktivasyonla birlesince
+#   "8 bit activations with 16 bit weights are not supported on backend"
+# cikiyor. Bu davranis override/config'ten BAGIMSIZ, o yuzden kosulsuz kapatiyoruz
+# (2.39 oncesi davranis = referansin uretildigi davranis).
+DYN16W_OFF=0
+if [ "${DISABLE_DYN16W:-1}" = "1" ] \
+   && has_hidden_flag qairt-converter --disable_dynamic_16_bit_weights; then
+  CARGS+=(--disable_dynamic_16_bit_weights)
+  DYN16W_OFF=1
+  echo "  [dyn16w] --disable_dynamic_16_bit_weights (converter)"
 fi
 # IO_CONFIG: SDK'nin I/O yapilandirma YAML'i (--dump_config_template semasi).
 # 16-bit graf sinirini YALNIZCA sinirda tutar; --quantization_overrides gibi
@@ -251,7 +257,7 @@ PY
       QARGS+=(--use_per_channel_quantization)
     fi
   fi
-  if [ -n "${QUANT_OVERRIDES:-}" ] && [ "${DISABLE_DYN16W:-1}" = "1" ] \
+  if [ "${DISABLE_DYN16W:-1}" = "1" ] \
      && has_hidden_flag qairt-quantizer --disable_dynamic_16_bit_weights; then
     QARGS+=(--disable_dynamic_16_bit_weights)
   fi
