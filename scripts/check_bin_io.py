@@ -92,8 +92,11 @@ def main() -> None:
                     continue
                 want = EXPECT[args.expect][
                     "inputs" if key == "graphInputs" else "outputs"].get(name)
-                if want and dtype != want:
-                    problems.append(f"{name}: {dtype} (beklenen {want})")
+                # Arac tipleri "QNN_DATATYPE_UFIXED_POINT_16" diye yaziyor,
+                # EXPECT ise on eksiz tutuluyor -> karsilastirmadan once kirp.
+                got = (dtype or "").replace("QNN_DATATYPE_", "")
+                if want and got != want:
+                    problems.append(f"{name}: {got} (beklenen {want})")
 
     if args.expect and problems:
         print()
@@ -101,8 +104,8 @@ def main() -> None:
         for p in problems:
             print(f"        - {p}")
         print("      Motor sample/text_embedding'e uint16, timestamp'e int32")
-        print("      yazar. UNET_MODE=a8w8 bu uygulamada calismaz;")
-        print("      a16w8_restrict kullanin.")
+        print("      yazar (QnnModel.hpp). Duz UNET_MODE=a8w8 bu uygulamada")
+        print("      calismaz; a8w8_io16cfg kullanin (config.env).")
         if args.strict:
             sys.exit(1)
     elif args.expect:

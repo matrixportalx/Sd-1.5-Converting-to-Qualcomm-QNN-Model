@@ -798,3 +798,39 @@ ihtiyaç ~20 GB'ı geçiyor.
   siliniyor (~3.4 GB). Bedeli: sonraki koşuda dönüşüm + kuantizasyon baştan.
 * `disk_report` — adım 0/2/4 öncesi-sonrası boş alan ve en büyük klasörler
   yazdırılıyor, bir daha körlemesine tahmin etmeyelim.
+
+## ÇALIŞTI — unet.bin v68 için üretildi (v18)
+
+```
+[context-bin] model_q.dlc -> unet.bin (dsp_arch=v68)
+====== DDR bandwidth summary ======
+[+] work/CyberRealistic/qnn/unet.bin
+```
+
+`/unet/time_proj/...` hatası gitti; Gather çözümü tuttu. Adım 6c'nin okuduğu
+gerçek tipler:
+
+```
+graf: model
+  girdi text_embedding   QNN_DATATYPE_UFIXED_POINT_16  [1, 77, 768]
+  girdi timestamp        QNN_DATATYPE_INT_32           [1]
+  girdi sample           QNN_DATATYPE_UFIXED_POINT_16  [1, 4, 64, 64]
+  cikti output           QNN_DATATYPE_UFIXED_POINT_16  [1, 4, 64, 64]
+```
+
+Yani motorun `QnnModel.hpp`'de yazdığı tiplerin **tamamı tutuyor**. VAE decoder
+ve encoder de sorunsuz derlendi. Paket: `dist/CyberRealistic_qnn2.40_min.zip`
+(unet.bin 830 MB; referans 893 MB).
+
+### check_bin_io.py hatası (düzeltildi)
+
+Script "TIP UYUSMAZLIGI" yazdı ama listelediği değerler beklenenle aynıydı —
+karşılaştırma hatalıydı: araç `QNN_DATATYPE_UFIXED_POINT_16` döndürüyor,
+`EXPECT` ise ön eksiz `UFIXED_POINT_16` tutuyor. Karşılaştırmadan önce
+`QNN_DATATYPE_` öneki kırpılıyor artık. Yanlış alarmdı, paket sağlam.
+
+### Sırada
+
+Bu paket `FAST_TRIAL=1` ile üretildi (1 prompt x 2 adım kalibrasyon) — cihazda
+yüklenmesi beklenir ama **görüntü kalitesi düşüktür**. Yükleme doğrulanınca
+`OVERRIDE_FAST_TRIAL=0` ile bir kez daha koşulmalı.
