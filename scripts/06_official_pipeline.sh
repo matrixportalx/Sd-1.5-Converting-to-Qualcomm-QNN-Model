@@ -178,6 +178,25 @@ else
   echo "### 3) export_onnx.py [ATLANDI - unet/model.onnx var]"
 fi
 
+# ---- 3b) Sistem bagimliliklari --------------------------------------------
+# QNN 2.28'in Python baglantilari (libPyIrGraph) LLVM libc++'a bagli:
+#   ImportError: libc++.so.1: cannot open shared object file
+# Colab imajinda yok; SDK da kendi kopyasini tasimiyor.
+if ! ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1'; then
+  echo "### 3b) libc++ kuruluyor (QNN 2.28 python baglantilari icin)"
+  (apt-get -qq update -y >/dev/null 2>&1 || true)
+  if ! apt-get -qq install -y libc++1 libc++abi1 >/dev/null 2>&1; then
+    apt-get -qq install -y libc++1-14 libc++abi1-14 >/dev/null 2>&1 || true
+  fi
+  ldconfig 2>/dev/null || true
+  if ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1'; then
+    echo "  [deps] libc++ hazir"
+  else
+    echo "  [!] libc++ kurulamadi — qnn-onnx-converter calismayabilir"
+    echo "      Elle: apt-get install -y libc++1 libc++abi1"
+  fi
+fi
+
 # ---- 4) QNN donusumu ------------------------------------------------------
 # Resmi convert_all.sh SDK yolunu SABIT kodluyor (/data/qairt/2.28.0.241029);
 # bizimkine cevirmek icin gecici bir kopya uretiyoruz.

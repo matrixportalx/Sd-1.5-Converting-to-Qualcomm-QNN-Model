@@ -1435,3 +1435,32 @@ Düzeltme iki yerde:
 `data.pkl`, `images/` ve `unet/model.onnx` önbellekte olduğu için koşu
 tekrarlandığında doğrudan 4. adımdan (QNN dönüşümü) devam eder — 35 dakika
 yeniden ödenmez.
+
+## GPU koşusu: CUDA çalıştı, MNN düzeldi, sırada libc++
+
+Yeni defter + A100 ile:
+
+* `[cuda] GPU bulundu -> pyproject.toml CUDA torch'a cevriliyor`
+* `torch==2.5.1+cu121` kuruldu, `[torch] 2.5.1+cu121 cuda: True NVIDIA A100-SXM4-40GB`
+* `prepare_data.py` **adım süresi basılmayacak kadar hızlı** bitti
+  (CPU'da 3.85 sn/adım × ~500 adım ≈ 35 dk idi)
+* `gen_quant_data.py` → 924 örnek, `CALIB_LIMIT=150` ile 150'ye kırpıldı
+* `export_onnx.py` sorunsuz
+* **MNNConvert düzeldi** — `Converted Success!`, `clip_v2.mnn` üretildi
+
+Yeni hata `qnn-onnx-converter`'da:
+
+```
+ImportError: cannot import name 'libPyIrGraph' ...
+ImportError: libc++.so.1: cannot open shared object file: No such file or directory
+```
+
+QNN 2.28'in Python bağlantıları LLVM **libc++**'a bağlı; Colab imajında yok ve
+SDK kendi kopyasını taşımıyor. `06_official_pipeline.sh` artık adım 3b'de
+`ldconfig` ile kontrol edip eksikse `libc++1 libc++abi1` (yedek:
+`libc++1-14 libc++abi1-14`) kuruyor.
+
+Kalan zincir: `qnn-onnx-converter` → `qnn-model-lib-generator` (C++ derlemesi)
+→ `qnn-context-binary-generator`. Sonraki muhtemel eksikler derleyici/`make`
+tarafında olabilir; Colab'da `build-essential` kurulu olduğu için sorun
+beklemiyorum.
