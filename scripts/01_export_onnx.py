@@ -231,16 +231,6 @@ def export_unet(pipe, out_dir, opset, res):
             self.unet = unet
 
         def forward(self, sample, timestep, encoder_hidden_states):
-            # 'timestamp' graf girisi INT_32 kalir (motor boyle yaziyor), ama
-            # UNet icindeki timesteps.expand(batch) -> ONNX Expand -> QNN Reshape
-            # int32 girdi + uint8 cikti kombinasyonunu HTP KABUL ETMIYOR:
-            #   "Unsupported input/output datatypes ... 'Reshape' in '/unet/Expand'
-            #    in[0]:QNN_DATATYPE_INT_32  out[0]:QNN_DATATYPE_UFIXED_POINT_8"
-            # HTP'nin izin verdigi OTHERS kombinasyonlarindan 4.'su
-            #   in[0]:FLOAT_32 -> out[0]:UFIXED_POINT_8
-            # gecerli oldugundan timestep'i GIRISTE float32'ye ceviriyoruz;
-            # boylece Expand float girdili olur. Graf girisinin tipi degismez.
-            timestep = timestep.to(torch.float32)
             if USE_CLIP:
                 sample = torch.clamp(sample, -CLIP, CLIP)
                 encoder_hidden_states = torch.clamp(
@@ -255,12 +245,37 @@ def export_unet(pipe, out_dir, opset, res):
     timestep = torch.tensor([1], dtype=torch.int32)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
-    onnx_export(
-        UNetWrap(unet), (sample, timestep, ehs), path,
-        # Isimler referansla birebir: sample / timestamp / text_embedding / output
-        input_names=["sample", "timestamp", "text_embedding"],
-        output_names=["output"],
-        opset_version=opset, do_constant_folding=True)
+
+    # diffusers UNet.forward icinde `timesteps.expand(sample.shape[0])` var.
+    # timesteps sekli [1], batch da 1 oldugundan bu KIMLIK islemi — ama izleme
+    # sirasinda yine de bir ONNX Expand dugumu yaziliyor. QNN bunu Reshape'e
+    # cevirip su kombinasyonu istiyor:
+    #   in[0]:INT_32 -> out[0]:UFIXED_POINT_8
+    # HTP'nin kabul listesinde bu ikili YOK (int32 girdi ancak int32 cikti
+    # verebiliyor). timestamp girisi INT_32 kalmak ZORUNDA (motor boyle
+    # yaziyor), o yuzden cozum Expand'i grafa hic yazdirmamak.
+    #
+    # Girise Cast koymak ise ise yaramiyor: converter Cast'i katlayip atiyor
+    # ("The cast op ... will be interpreted at conversion time") ve Expand yine
+    # int32 aliyor. Bu yuzden izleme sirasinda kimlik expand'lari eliyoruz.
+    _orig_expand = torch.Tensor.expand
+
+    def _expand_identity_skip(self, *sizes):
+        if (len(sizes) == 1 and isinstance(sizes[0], int)
+                and tuple(self.shape) == (sizes[0],)):
+            return self          # kimlik: dugum yazma
+        return _orig_expand(self, *sizes)
+
+    torch.Tensor.expand = _expand_identity_skip
+    try:
+        onnx_export(
+            UNetWrap(unet), (sample, timestep, ehs), path,
+            # Isimler referansla birebir: sample/timestamp/text_embedding/output
+            input_names=["sample", "timestamp", "text_embedding"],
+            output_names=["output"],
+            opset_version=opset, do_constant_folding=True)
+    finally:
+        torch.Tensor.expand = _orig_expand
 
 
 def main() -> None:

@@ -616,3 +616,27 @@ girdiğinden uint8 isteniyor — bu ikili tabloda yok.
 çevriliyor (`timestep.to(torch.float32)`). Böylece Expand FLOAT_32 girdili olur
 ve OTHERS-4 kombinasyonu geçerli hale gelir. **Graf girişinin tipi değişmez** —
 `timestamp` hâlâ INT_32, motorun yazdığı gibi.
+
+## `/unet/Expand` — Cast işe yaramadı, düğümü grafa hiç yazdırmıyoruz (v15)
+
+v14'te `timestep` girişte float32'ye çevrildi ama converter Cast'i katlayıp
+attı ve Expand yine int32 aldı:
+
+```
+Only numerical type cast is supported. The cast op: /Cast will be interpreted
+at conversion time
+```
+
+`/unet/Expand`, diffusers'ın `timesteps.expand(sample.shape[0])` satırı.
+`timesteps` şekli `[1]`, batch de 1 → bu bir **kimlik işlemi**; sadece izleme
+sırasında düğüm olarak yazılıyor. `timestamp` girişi INT_32 kalmak zorunda
+(motor öyle yazıyor), dolayısıyla çözüm düğümü hiç oluşturmamak.
+
+**v15:** export sırasında `torch.Tensor.expand` geçici olarak sarmalanıyor;
+1-boyutlu tensörde kendi uzunluğuna expand çağrısı `self` döndürüyor, ONNX'e
+düğüm yazılmıyor. Diğer expand'lar (dikkat maskeleri vb.) etkilenmiyor —
+koşul dar. Aynı teknik CLIP gömme ayırmada da kullanılıyor.
+
+Not: `a8w8` (io-config'siz) derlemesinin daha önce sorunsuz geçmesinin sebebi,
+o modda `timestamp`'ın da uint8'e kuantize edilmesiydi — Expand uint8→uint8
+oluyordu. io-config ile INT_32 olunca kombinasyon geçersizleşti.
