@@ -302,8 +302,16 @@ def export_unet(pipe, out_dir, opset, res):
 
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)
-    # Referans binary: timestamp = INT_32, dims [1] (rank-1). Birebir eslesmeli.
-    timestep = torch.tensor([1], dtype=torch.int32)
+    # ONNX'te timestamp FLOAT32; QNN graf sinirinda INT_32'ye cevriliyor
+    # (gen_io_config.py: Src=float32, Desired=int32).
+    #
+    # Neden: int32 bir tensor uzerindeki HER sekil islemi (Expand, Unsqueeze,
+    # Reshape...) HTP'de "in:INT_32 -> out:UFIXED_POINT_8" istiyor ve bu ikili
+    # kabul listesinde yok. Araya Cast koymak ise yaramiyor — converter Cast'i
+    # katlayip atiyor ve dtype'i asagi tasiyor. Cozum: ONNX tarafinda int32
+    # yolunu hic olusturmamak; donusumu QNN sinirda yapsin. Motor yine int32
+    # yaziyor, referans binary de INT_32 gosteriyor — sinir tipi degismiyor.
+    timestep = torch.tensor([1], dtype=torch.float32)
     ehs = torch.randn(1, TEXT_SEQ_LEN, hidden)
     print(f"[*] unet {res.tag} -> {path}")
 

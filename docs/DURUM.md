@@ -659,3 +659,50 @@ düz `int` yerine izlenmiş bir değer dönüyor.
 
 Emniyet ağı birim testten geçti: kimlik Expand siliniyor ve `Cast` doğrudan
 `timestamp`'a bağlanıyor; şekil büyüten gerçek Expand korunuyor.
+
+## Köstebek oyunu bitti: int32 yolu ONNX'ten tamamen kaldırıldı (v17)
+
+v16 çalıştı — `[expand] 1 kimlik expand elendi` — ama bu sefer bir sonraki
+düğüm patladı:
+
+```
+QnnDsp <E> graph_prepare.cc: Op 0x... preparation failed with err:-1
+Failed to validate op /unet/time_proj/Unsqueeze with error 0xc26
+in[0] INT_32 ... out[0] UFIXED_POINT_8 ... None of the combinations match
+```
+
+Yani sorun `Expand` değil: **int32 `timestamp` üzerindeki HER şekil işlemi**
+(`Expand`, `Unsqueeze`, `Reshape`, `Concat`...) aynı kurala takılıyor. HTP'nin
+kabul listesinde "girişi INT_32, çıkışı UFIXED_POINT_8" diye bir kombinasyon
+yok, çünkü int32 girdi ancak int32 çıktı verebilir; kuantize edilmiş çıkış
+istendiğinde eşleşme kalmıyor. Düğümleri tek tek elemek köstebek oyunu.
+
+Araya `Cast` koymak da işe yaramıyor — v14'te denendi, converter Cast'i katlayıp
+atıyor ("will be interpreted at conversion time").
+
+**Kök çözüm — v17:** int32 yolunu ONNX tarafında hiç oluşturmuyoruz.
+`--config` YAML'ının iki ayrı alanı tam bunun için var:
+
+```yaml
+- Name: timestamp
+  Src Model Parameters:
+      DataType: float32      # ONNX modelindeki tip
+  Desired Model Parameters:
+      DataType: int32        # QNN graf sınırındaki tip (motorun yazdığı)
+```
+
+Böylece:
+* ONNX'te `timestamp` float32 → `time_proj` ve tüm zaman-gömme yolu
+  baştan sona float/kuantize; hiçbir INT_32 şekil işlemi yok.
+* QNN graf **sınırında** tip yine INT_32 → motor (`local-dream`/Ruya) sabit
+  yazdığı int32 ile uyumlu, referans binary ile aynı.
+
+Yan değişiklikler:
+* `01_export_onnx.py`: `timestep = torch.tensor([1], dtype=torch.float32)`
+* `02_gen_quant_data.py` (calib v3): timestep raw'ları tekrar float32 —
+  ONNX girişi float olduğu için quantizer'ın doğru okuması bu şekilde.
+  (v2'de int32'ye çevrilmişti; o, ONNX girişi int32 iken doğruydu.)
+* `gen_io_config.py`: `_tensor_block(..., src_dtype=...)` eklendi.
+
+v16'nın expand kancası ve ONNX emniyet ağı **yerinde bırakıldı** — artık
+tetiklenmesi gerekmiyor ama zararsız ve geri dönülürse hazır.

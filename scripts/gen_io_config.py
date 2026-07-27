@@ -62,11 +62,14 @@ def _scale_offset(vmin: float, vmax: float):
 
 
 def _tensor_block(name: str, dtype: str, idx: int, kind: str,
-                  quant=None) -> str:
+                  quant=None, src_dtype: str = "float32") -> str:
+    # Src  = ONNX modelindeki tip
+    # Desired = QNN graf sinirindaki (motorun yazdigi) tip
+    # timestamp icin ikisi FARKLI: ONNX'te float32, sinirda int32.
     lines = [f"  # {kind} {idx}",
              f"  - Name: {name}",
              "    Src Model Parameters:",
-             "        DataType: float32",
+             f"        DataType: {src_dtype}",
              "    Desired Model Parameters:",
              f"        DataType: {dtype}"]
     if quant is not None:
@@ -98,7 +101,7 @@ def main() -> None:
         "# qairt-converter --config  (sema: --dump_config_template)",
         "# 16-bit GRAF SINIRI + 8-bit ic hesap. Motorun bekledigi tipler:",
         "#   sample / text_embedding / output -> uint16 (UFIXED_POINT_16)",
-        "#   timestamp                        -> int32",
+        "#   timestamp                        -> int32 (ONNX'te float32)",
         "Converted Graph:",
         "  - Input Tensors:",
         "  - Output Tensors:",
