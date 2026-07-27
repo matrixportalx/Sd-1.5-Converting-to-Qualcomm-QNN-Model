@@ -168,6 +168,8 @@ fi
 # CLIP ONNX'leri MNN'e cevrildi; paketlenmiyorlar, yer kaplamasinlar.
 if [ -f "$WORK/mnn/clip_v2.mnn" ]; then
   rm -f "$WORK/onnx/clip_v2.onnx" "$WORK/onnx/clip.onnx"
+  # Onceki kosulardan kalan tam CLIP de pakete girmiyor -> 156 MB bosa.
+  [ "${EXPORT_FULL_CLIP:-0}" = "1" ] || rm -f "$WORK/mnn/clip.mnn"
 fi
 disk_report "adim 2 sonrasi"
 
