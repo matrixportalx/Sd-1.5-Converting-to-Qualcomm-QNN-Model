@@ -1198,3 +1198,27 @@ duruyor — saniyeler sürer.
 
 Not: 2.28 linki de elimizde (bkz. bir önceki bölüm), ama önce scriptleri okuyup
 hangi araçların gerektiğini görmek gerekiyor.
+
+## 2.28'e geçildi + indirme kaldığı yerden devam
+
+Soru geldi: "2.28'i mi 2.39'u mu kullanıyoruz?" — o ana kadar **2.39**. Artık
+**2.28 aktif**. Gerekçe: rehber sürümü şart koşuyor ("please use v2.28 to avoid
+potential issues"), okuyacağımız resmi scriptler o sürüm için yazılmış ve her
+oturumda 1.3 GB'ı iki kez indirmenin anlamı yok.
+
+```
+OVERRIDE_QAIRT_ASSET_URL=https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/qualcomm_neural_processing_sdk/v2.28.0.241029.zip
+OVERRIDE_QNN_VERSION=2.28
+```
+
+2.39 ve 2.40 satırları yorumlu olarak duruyor.
+
+Ayrıca SDK indirmesi **%53'te koptu**. Colab'da her yeni çalışma zamanı SDK'yı
+baştan indirmek demek olduğu için tek bir kopma pahalı. `setup_qnn_sdk.py`
+artık HTTP `Range` ile **kaldığı yerden devam** ediyor ve üstel bekleyişle
+5 kez deniyor; yarım kalan dosya silinmiyor, üstüne ekleniyor.
+
+Uyarı: 2.28'de `qairt-converter` ve `qnn-context-binary-generator --dlc_path`
+olmayabilir. O durumda bizim adım 4 hattımız çalışmaz ve resmi akışa
+(`qnn-onnx-converter → qnn-model-lib-generator → --model <.so>`) geçeceğiz.
+Bu koşuda `FETCH_ONLY=1` olduğu için dönüşüm zaten çalışmıyor.

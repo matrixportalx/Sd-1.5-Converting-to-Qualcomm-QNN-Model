@@ -16,6 +16,7 @@ Cikti: son satirda  QNN_SDK_ROOT=<yol>  yazar (kabuk/CI yakalayabilir).
 """
 import argparse
 import os
+import time
 import sys
 import tarfile
 import urllib.parse
@@ -51,24 +52,52 @@ def resolve_asset(repo, tag, token):
     return assets[0]["name"], assets[0]["browser_download_url"]
 
 
-def download(url, out_path, token):
-    headers = {"User-Agent": "sd-qnn-setup/1.0"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+def download(url, out_path, token, attempts=5):
+    """SDK'yi indirir. KALDIGI YERDEN DEVAM eder ve koparsa tekrar dener.
+
+    Neden: Colab'da her yeni calisma zamani SDK'yi bastan indirmek demek
+    (1.3-2 GB) ve baglanti ortasinda kopabiliyor ("%53'te" gibi). Tek bir
+    kopma tum adimi bastan aldirmasin diye HTTP Range ile devam ediyoruz.
+    """
     print(f"[*] SDK indiriliyor: {url}")
-    with requests.get(url, headers=headers, stream=True, timeout=120,
-                      allow_redirects=True) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("content-length", 0))
-        done = 0
-        with open(out_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1 << 20):
-                f.write(chunk)
-                done += len(chunk)
-                if total:
-                    print(f"\r    {done>>20}/{total>>20} MB "
-                          f"({done*100//total}%)", end="", flush=True)
-        print()
+    for attempt in range(1, attempts + 1):
+        have = os.path.getsize(out_path) if os.path.exists(out_path) else 0
+        headers = {"User-Agent": "sd-qnn-setup/1.0"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        if have:
+            headers["Range"] = f"bytes={have}-"
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=120,
+                              allow_redirects=True) as r:
+                if have and r.status_code == 200:
+                    # Sunucu Range'i yok saydi -> bastan yaz
+                    have = 0
+                elif have and r.status_code != 206:
+                    r.raise_for_status()
+                else:
+                    r.raise_for_status()
+                total = int(r.headers.get("content-length", 0)) + have
+                done = have
+                mode = "ab" if have else "wb"
+                with open(out_path, mode) as f:
+                    for chunk in r.iter_content(chunk_size=1 << 20):
+                        f.write(chunk)
+                        done += len(chunk)
+                        if total:
+                            print(f"\r    {done>>20}/{total>>20} MB "
+                                  f"({done*100//total}%)", end="", flush=True)
+                print()
+                if total and done < total:
+                    raise IOError(f"eksik indirme: {done}/{total}")
+                return
+        except Exception as e:
+            got = os.path.getsize(out_path) if os.path.exists(out_path) else 0
+            print(f"\n  [!] indirme koptu ({type(e).__name__}: {e}) — "
+                  f"{got>>20} MB alindi, deneme {attempt}/{attempts}")
+            if attempt == attempts:
+                raise
+            time.sleep(min(2 ** attempt, 16))
 
 
 def extract(archive, dest):
