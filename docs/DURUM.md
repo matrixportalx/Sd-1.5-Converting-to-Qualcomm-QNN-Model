@@ -1134,3 +1134,29 @@ E/F/G senaryoları aynı testleri `--config` **açıkken** tekrarlıyor.
 Yedek plan için not: `qnn-onnx-converter` bu SDK'da var ama `pandas` eksikliği
 yüzünden açılmıyor (`ModuleNotFoundError: No module named 'pandas'`) — gerekirse
 `pip install pandas` yeter. `qnn-model-lib-generator` sorunsuz çalışıyor.
+
+## QNN 2.28 indirme linki bulundu (farklı ürün yolu)
+
+Mr-J-369 HuggingFace tartışmasından gelen yanıt, Local Dream rehberini
+(`ld-guide.chino.icu/conversion/sd15`) ve çalışan indirme linkini verdi:
+
+```
+https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/qualcomm_neural_processing_sdk/v2.28.0.241029.zip
+```
+
+Bizim yoklamamızın 2.28'e 404 vermesinin sebebi anlaşıldı: **farklı ürün yolu**.
+
+| ürün | yol | kapsam |
+|---|---|---|
+| Qualcomm AI Runtime Community | `softwarecenter.../Qualcomm_AI_Runtime_Community/All/{v}/v{v}.zip` | 2.3x ve üstü |
+| Qualcomm Neural Processing SDK | `apigwx-aws.../qualcomm_neural_processing_sdk/v{v}.zip` | **eski sürümler, 2.28 dahil** |
+
+`probe_qairt_versions.py` artık ikisini de deniyor. `config.env`'e 2.28 seçeneği
+(yorumlu) eklendi. `setup_qnn_sdk.py`'nin `find_sdk_root` fonksiyonu zaten
+`qnn-onnx-converter`'ı da tanıdığı için 2.28 sorunsuz algılanır.
+
+**Ama önce 2.39 + düğüm yeniden sıralaması denenmeli.** Sebep: 2.28'de büyük
+ihtimalle `qairt-converter` ve `qnn-context-binary-generator --dlc_path` yok;
+o sürüme geçmek eski hattı (`qnn-onnx-converter → qnn-model-lib-generator →
+--model <.so>`) baştan yazmayı gerektirir. Düğüm sıralaması tutarsa hiç gerek
+kalmaz; tutmazsa zaten o hatta geçeceğiz ve 2.28 elimizde olacak.

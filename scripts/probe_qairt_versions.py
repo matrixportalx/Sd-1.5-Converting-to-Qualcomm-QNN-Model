@@ -20,8 +20,19 @@ Kullanim:
 import sys
 import urllib.request
 
-BASE = ("https://softwarecenter.qualcomm.com/api/download/software/sdks/"
-        "Qualcomm_AI_Runtime_Community/All/{v}/v{v}.zip")
+# IKI AYRI URUN YOLU var; eski surumler ikincide duruyor. 2.28 yoklamamizda
+# 404 vermisti cunku yalnizca birincisine bakiyorduk:
+#   1) Qualcomm AI Runtime Community  (yeni, 2.3x+)
+#   2) Qualcomm Neural Processing SDK (eski; referans modellerin 2.28'i BURADA)
+BASES = [
+    ("AI Runtime Community",
+     "https://softwarecenter.qualcomm.com/api/download/software/sdks/"
+     "Qualcomm_AI_Runtime_Community/All/{v}/v{v}.zip"),
+    ("Neural Processing SDK",
+     "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/"
+     "qualcomm_neural_processing_sdk/v{v}.zip"),
+]
+BASE = BASES[0][1]
 
 # 2.28 hedef; komsulari da deniyoruz — 2.28 yoksa en yakin eski surum de ise
 # yarayabilir (16-bit MatMul/LayerNorm kisitlari 2.3x'te sikilasmis olabilir).
@@ -47,16 +58,20 @@ CANDIDATES = [
 
 
 def probe(ver: str, timeout: int = 25):
-    url = BASE.format(v=ver)
-    req = urllib.request.Request(url, method="HEAD",
-                                 headers={"User-Agent": "curl/8"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            size = int(r.headers.get("content-length", 0))
-            return r.status, size, url
-    except Exception as e:
-        code = getattr(e, "code", None)
-        return (code or type(e).__name__), 0, url
+    """Iki urun yolunu da dener; ilk basarili olani dondurur."""
+    last = None
+    for label, base in BASES:
+        url = base.format(v=ver)
+        req = urllib.request.Request(url, method="HEAD",
+                                     headers={"User-Agent": "curl/8"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                size = int(r.headers.get("content-length", 0))
+                return r.status, size, url
+        except Exception as e:
+            code = getattr(e, "code", None)
+            last = ((code or type(e).__name__), 0, url)
+    return last
 
 
 def main() -> None:
