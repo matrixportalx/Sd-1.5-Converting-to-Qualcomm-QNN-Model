@@ -218,7 +218,12 @@ def export_unet(pipe, out_dir, opset, res):
     #
     # Sinirlar gercek dagilimin cok uzerinde (kirpma yapmaz), yalnizca op'un
     # sadelestirilmemesi icin sonlu.
+    # NOT: converter opset-13 Clip'i desteklemiyor ("Operation Clip Not
+    # Supported. Expected operator version: [1, 6, 11, 12]"). Ayrica artik
+    # gerek yok — 16-bit sinir qairt-converter --config ile veriliyor
+    # (bkz. gen_io_config.py). Denemek isteyen UNET_CLIP_BARRIER=1 verebilir.
     CLIP = 1.0e4
+    USE_CLIP = os.environ.get("UNET_CLIP_BARRIER", "0") == "1"
 
     class UNetWrap(torch.nn.Module):
         def __init__(self, unet):
@@ -226,10 +231,13 @@ def export_unet(pipe, out_dir, opset, res):
             self.unet = unet
 
         def forward(self, sample, timestep, encoder_hidden_states):
-            s = torch.clamp(sample, -CLIP, CLIP)
-            e = torch.clamp(encoder_hidden_states, -CLIP, CLIP)
-            out = self.unet(s, timestep, encoder_hidden_states=e).sample
-            return torch.clamp(out, -CLIP, CLIP)
+            if USE_CLIP:
+                sample = torch.clamp(sample, -CLIP, CLIP)
+                encoder_hidden_states = torch.clamp(
+                    encoder_hidden_states, -CLIP, CLIP)
+            out = self.unet(sample, timestep,
+                            encoder_hidden_states=encoder_hidden_states).sample
+            return torch.clamp(out, -CLIP, CLIP) if USE_CLIP else out
 
     path = os.path.join(out_dir, f"unet_{res.tag}.onnx")
     sample = torch.randn(1, LATENT_CHANNELS, res.latent_h, res.latent_w)

@@ -100,10 +100,11 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
-# v12: 16-bit graf siniri ile 8-bit ic graf arasina Clip bariyeri (agirliksiz op;
-# QNN 16-bit etiketini to_k/to_v uzerinden ic grafa tasiyamasin).
+# v13: Clip bariyeri kaldirildi (converter opset-13 Clip'i desteklemiyor ve
+# 16-bit sinir artik qairt-converter --config ile veriliyor).
+# v12: Clip bariyeri.
 # v11: UNet a16w8 + restrict steps. v10: referans recete (16-bit I/O, graf "model", v68).
-EXPORT_VERSION="12"
+EXPORT_VERSION="13"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \
@@ -179,17 +180,32 @@ fi
 # UNET_MODE:
 #   a16w8_restrict (varsayilan) : referans recete
 #   a16w8                       : restrict yok (v73+ gerektirir)
-#   a8w8_io16                   : ic hesap 8-bit + graf sinirlari 16-bit
+#   a8w8_io16cfg                : ic hesap 8-bit + graf sinirlari uint16,
+#                                 SDK'nin resmi --config YAML yoluyla
+#   a8w8_io16                   : ayni fikir ama --quantization_overrides ile
+#                                 (etiket ic grafa siziyor - ELENDI)
 #                                 (karma hassasiyet — referansin yaptigi)
 #   a8w8                        : tam 8-bit — DERLENIR ama motor uint16
 #                                 yazdigi icin CIHAZDA YUKLENMEZ (yalnizca
 #                                 boru hattini test etmek icin)
 UNET_MODE="${UNET_MODE:-a16w8_restrict}"
 U_OVERRIDES=""      # yalnizca UNet'e verilir; VAE adimlarina SIZMAMALI
+U_IO_CONFIG=""
 case "$UNET_MODE" in
   a16w8_restrict) U_ACT=16; U_RESTRICT="${UNET_RESTRICT:-auto}" ;;
   a16w8)          U_ACT=16; U_RESTRICT="" ;;
   a8w8)           U_ACT=8;  U_RESTRICT="" ;;
+  a8w8_io16cfg)
+    # SDK'nin RESMI yolu: ic hesap 8-bit, graf sinirlari uint16/int32
+    # (qairt-converter --config, sema --dump_config_template'ten).
+    # --quantization_overrides'in aksine etiket ic grafa sizmaz.
+    U_ACT=8; U_RESTRICT=""
+    echo "  [io-config] sinir tensorleri icin YAML uretiliyor"
+    python3 "$SDIR/gen_io_config.py" --calib "$WORK/calib/$TAG" \
+        --output "$WORK/onnx/unet_io_config.yaml" \
+        --dtype "${IO_DTYPE:-uint16}"
+    U_IO_CONFIG="$(cd "$WORK/onnx" && pwd)/unet_io_config.yaml"
+    ;;
   a8w8_io16)
     # KARMA HASSASIYET: ic hesap 8-bit (v68'de LayerNorm/Conv/MatMul hepsi
     # gecerli), YALNIZCA graf sinir tensorleri 16-bit — referansin
@@ -206,6 +222,7 @@ esac
 echo "### 4) UNet -> QNN ($UNET_MODE, graf 'model')"
 ( cd "$SDIR" && ACT_BW="$U_ACT" WEIGHT_BW="${UNET_WEIGHT_BW:-8}" \
     RESTRICT_STEPS="$U_RESTRICT" QUANT_OVERRIDES="$U_OVERRIDES" \
+    IO_CONFIG="$U_IO_CONFIG" \
     ./03_convert_qnn.sh "../$WORK/onnx/unet_${TAG}.onnx" \
     model quant "../$WORK/calib/${TAG}/input_list.txt" "$TIER" "../$WORK/qnn" unet )
 

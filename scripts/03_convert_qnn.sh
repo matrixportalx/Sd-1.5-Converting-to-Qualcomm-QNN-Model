@@ -167,6 +167,13 @@ if [ -n "${QUANT_OVERRIDES:-}" ] && [ -f "${QUANT_OVERRIDES}" ]; then
     echo "  [dyn16w] converter: --disable_dynamic_16_bit_weights"
   fi
 fi
+# IO_CONFIG: SDK'nin I/O yapilandirma YAML'i (--dump_config_template semasi).
+# 16-bit graf sinirini YALNIZCA sinirda tutar; --quantization_overrides gibi
+# etiketi ic grafa (to_k/to_v MatMul) tasimaz.
+if [ -n "${IO_CONFIG:-}" ] && [ -f "${IO_CONFIG}" ]; then
+  CARGS+=(--config "$IO_CONFIG")
+  echo "  [io-config] $IO_CONFIG"
+fi
 C_SIG="$WORK/${GRAPH}.args"
 C_SIG_NEW="${CARGS[*]:-}"
 if [ -f "$FP_DLC" ] && [ "${FORCE:-0}" != "1" ] \

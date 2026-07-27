@@ -525,3 +525,48 @@ olarak bozuk** olmasıyla açıklanıyor. **2.40+ indirilebilir durumda** —
 
 Honor 90 / Snapdragon 7 Gen 1 (HTP v69) desteğiyle ilgili **kaldırma yok** —
 sürüm notlarında böyle bir madde geçmiyor; sorun baştan beri araç zinciriydi.
+
+## 2.40 de LayerNorm'u çözmedi — ama I/O config şablonu geldi (2026-07-27)
+
+QAIRT 2.40.0 indirildi ve kullanıldı. `a16w8_restrict` yine aynı yerde düştü:
+
+```
+None of the combinations match the provided case
+Failed to validate op .../norm1/LayerNormalization
+```
+
+v68 ve v69'da aynı. 2.40'ın "LayerNorm Op failed validation due to an
+unsupported data type" düzeltmesi bizim durumumuz değilmiş. **Tam 16-bit
+aktivasyon bu donanımda kesin kapalı.**
+
+Aynı koşuda `--dump_config_template` nihayet çalıştı ve aradığımız mekanizmanın
+şeması döküldü:
+
+```yaml
+Input Tensor Configuration:
+  - Name: sample
+    Src Model Parameters:
+        DataType:
+        Layout:
+    Desired Model Parameters:
+        DataType:          # <- uint16
+        QuantParams:
+          Scale:           # <- (max-min)/65535
+          Offset:          # <- round(min/Scale), negatif
+Output Tensor Configuration:
+  - Name: output
+    ...
+```
+
+Bu, `--quantization_overrides`'tan **temel olarak farklı**: yalnızca graf
+sınırındaki tensörlerin istenen tipini belirtir, iç grafın kuantizasyonuna
+hiç karışmaz. Dolayısıyla 16-bit etiketi `to_k`/`to_v` üzerinden MatMul
+ağırlıklarına sızamaz.
+
+`scripts/gen_io_config.py` bu YAML'i kalibrasyondan hesaplanan Scale/Offset ile
+üretiyor; `UNET_MODE=a8w8_io16cfg` iç hesabı a8w8 bırakıp YAML'i
+`qairt-converter --config` ile veriyor.
+
+Ayrıca Clip bariyeri kaldırıldı (export v13): converter opset-13 Clip'i
+desteklemiyor ("Expected operator version: [1, 6, 11, 12]") ve `--config`
+yoluyla artık gereksiz. `UNET_CLIP_BARRIER=1` ile geri açılabilir.
