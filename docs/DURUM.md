@@ -593,3 +593,26 @@ override/config'ten bağımsız:
 
 Artık bayrak koşulsuz veriliyor (converter + quantizer), yani 2.39 öncesi —
 referansın üretildiği — davranışa dönülüyor. `DISABLE_DYN16W=0` ile kapatılır.
+
+## Kuantizasyon geçti; sıra `/unet/Expand`'de (2026-07-27)
+
+`--disable_dynamic_16_bit_weights` koşulsuz verilince **kuantizasyon başarıyla
+tamamlandı** — `mixedPrecisionForWeights` hatası tarihe karıştı. Context-binary
+üretimi bir sonraki op'ta düştü ve HTP bu kez kabul ettiği kombinasyonların
+TAM LİSTESİNİ bastı:
+
+```
+'Reshape' in '/unet/Expand'
+  istenen:  in[0]:INT_32              out[0]:UFIXED_POINT_8    ✗
+  OTHERS-3: in[0]:INT_32              out[0]:INT_32            ✓
+  OTHERS-4: in[0]:FLOAT_32            out[0]:UFIXED_POINT_8    ✓
+```
+
+`/unet/Expand`, diffusers'ın `timesteps.expand(batch)` adımı. `timestamp`
+girişi INT_32 olduğu için Expand int32 alıyor, ama çıktısı kuantize graf'a
+girdiğinden uint8 isteniyor — bu ikili tabloda yok.
+
+**Çözüm (export v14):** `timestep` graf girişinden hemen sonra float32'ye
+çevriliyor (`timestep.to(torch.float32)`). Böylece Expand FLOAT_32 girdili olur
+ve OTHERS-4 kombinasyonu geçerli hale gelir. **Graf girişinin tipi değişmez** —
+`timestamp` hâlâ INT_32, motorun yazdığı gibi.

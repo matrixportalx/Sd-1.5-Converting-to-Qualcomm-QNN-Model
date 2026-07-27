@@ -100,11 +100,13 @@ else
 fi
 
 # ---- 1) ONNX/emb export (surum damgali) -----------------------------------
+# v14: timestep girişte float32'ye ceviriliyor — UNet icindeki Expand'in
+# int32 girdi + uint8 cikti kombinasyonunu HTP kabul etmiyor.
 # v13: Clip bariyeri kaldirildi (converter opset-13 Clip'i desteklemiyor ve
 # 16-bit sinir artik qairt-converter --config ile veriliyor).
 # v12: Clip bariyeri.
 # v11: UNet a16w8 + restrict steps. v10: referans recete (16-bit I/O, graf "model", v68).
-EXPORT_VERSION="13"
+EXPORT_VERSION="14"
 STAMP="$WORK/onnx/.export_version"
 if [ "$FORCE" = 0 ] && [ -f "$WORK/onnx/clip_v2.onnx" ] \
    && [ -f "$WORK/onnx/unet_${TAG}.onnx" ] \

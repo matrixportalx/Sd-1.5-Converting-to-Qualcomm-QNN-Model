@@ -231,6 +231,16 @@ def export_unet(pipe, out_dir, opset, res):
             self.unet = unet
 
         def forward(self, sample, timestep, encoder_hidden_states):
+            # 'timestamp' graf girisi INT_32 kalir (motor boyle yaziyor), ama
+            # UNet icindeki timesteps.expand(batch) -> ONNX Expand -> QNN Reshape
+            # int32 girdi + uint8 cikti kombinasyonunu HTP KABUL ETMIYOR:
+            #   "Unsupported input/output datatypes ... 'Reshape' in '/unet/Expand'
+            #    in[0]:QNN_DATATYPE_INT_32  out[0]:QNN_DATATYPE_UFIXED_POINT_8"
+            # HTP'nin izin verdigi OTHERS kombinasyonlarindan 4.'su
+            #   in[0]:FLOAT_32 -> out[0]:UFIXED_POINT_8
+            # gecerli oldugundan timestep'i GIRISTE float32'ye ceviriyoruz;
+            # boylece Expand float girdili olur. Graf girisinin tipi degismez.
+            timestep = timestep.to(torch.float32)
             if USE_CLIP:
                 sample = torch.clamp(sample, -CLIP, CLIP)
                 encoder_hidden_states = torch.clamp(
