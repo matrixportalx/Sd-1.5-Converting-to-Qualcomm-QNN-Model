@@ -1536,3 +1536,75 @@ tamamen CPU.
 Kalibrasyon listeleri **kalıcı olarak kırpılıyor** (400 → 150). Daha aza inmek
 serbest; geri çıkmak için `input_list_*.txt` silinip `gen_quant_data.py`
 yeniden çalıştırılmalı (`data.pkl` durduğu için saniyeler sürer).
+
+---
+
+## ✅ BASARDIK — paket cihazda yuklendi ve gorsel uretti (CALIB_LIMIT=24)
+
+Resmi hat (`npuconvertv2` + QNN SDK **2.28**) Colab'da ucdan uca kostu:
+
+```
+qnn-onnx-converter  -> model.cpp / model.bin   (32369 adet zararsiz clang
+                                                C99-designator uyarisi normal)
+qnn-model-lib-generator -> .../qnn_unet/x86_64-linux-clang/libmodel.so
+qnn-context-binary-generator --model  -> unet.bin
+BITTI. Cikti: /content/sd-qnn/dist/CyberRealistic_qnn2.28_min.zip
+```
+
+Cikan 7 dosya ve boyutlari referans `_min` paketiyle ortusuyor:
+
+| dosya | boyut | referans |
+|---|---|---|
+| `clip_v2.mnn` | 156.316.304 | ~ ayni |
+| `pos_emb.bin` | 236.544 | ayni |
+| `token_emb.bin` | 75.890.688 | **birebir** (fp16) |
+| `tokenizer.json` | 3.642.034 | ayni |
+| `unet.bin` | 892.452.192 | ~893 MB |
+| `vae_decoder.bin` | 96.453.504 | ~ ayni |
+| `vae_encoder.bin` | 58.805.232 | ~ ayni |
+
+Toplam 1.283.796.498 bayt. **Ruya'ya import edildi, model yuklendi ve
+Ruyagram'da (Harley Quinn) gorsel uretti.** Yani "kod 1 / Could not free
+context" zinciri kapandi.
+
+### Isi cozen sey neydi (ozet)
+
+1. Motor UNet girdilerini **isimle degil INDEKSLE** yaziyor
+   (`sample, timestamp, text_embedding`). Bizim DLC hattimiz sirayi ters
+   uretiyordu → 59136 elemanlik veri 16384'luk tampona yaziliyordu.
+2. Sirayi ONNX bildirim sirasi, `--config` YAML sirasi ve
+   `--source_model_input_shape` sirasi ile **degistiremedik** (ucu de olculdu).
+   Sirayi belirleyen sey resmi hattin `qnn-onnx-converter -> .so` zinciri.
+3. Ek olarak resmi tarif: `--act_bitwidth 16`, `--use_per_channel_quantization`,
+   `--bias_bitwidth 32`, `--preserve_io layout`, `vtcm_mb: 2`,
+   `redefined_modules/` (Linear→Conv, MHA→SHA).
+
+Sonuc: **kendi hattimizi degil, resmi hatti kosmak dogru cozum.**
+
+### Kalite kosusu (bir sonraki adim)
+
+`CALIB_LIMIT=24` yalnizca boru hattini dogrulamak icindi; kuantizasyon
+kalibrasyonu bu kadar az ornekle zayif. **Ayni Colab oturumunda**
+`CALIB_LIMIT`'i buyutup 5. adimi tekrar kosun:
+
+- `data.pkl`, `images/`, `unet/model.onnx`, `clip_v2.mnn` onbellekte → ~35 dk'lik
+  `prepare_data.py` **atlanir**, yalnizca kuantizasyon+derleme yenilenir.
+- Kalibrasyon listeleri kalici olarak 24'e kirpildigi icin yukari cikarken
+  `work/<AD>/input_list_*.txt` silinip `gen_quant_data.py` yeniden kosulmali
+  (`data.pkl` durdugundan saniyeler surer) — `06_official_pipeline.sh` bunu
+  kendisi yapar.
+- Butce: kuantizasyon **CPU**'da ve ornek sayisiyla dogru orantili. Resmi tarif
+  400; kalan ~26 birim (~5,3 birim/saat) icin **150** iyi bir denge.
+
+## HF yukleme adimi resmi deftere de eklendi
+
+Eski deftere ait yukleme hucresi bu deftere yapistirildiginda
+`NameError: HF_PRIVATE / HF_REPO / UPLOAD_MODE / COLLECTION_REPO` veriyordu:
+o degiskenler eski defterin form hucresinde tanimliydi. Resmi deftere
+**kendi form alanlarini tasiyan** 7. hucre eklendi (`os.system` yerine
+`subprocess` + cikis kodu kontrolu).
+
+`upload_hf.py` ayrica duzeltildi: resmi paket `model_info.json` icermiyor,
+bu yuzden runtime/tier artik **dosya adindan** cikariliyor
+(`*_qnn2.28_min.zip` → `qnn2.28` / `min`) ve model kartinda aktivasyon
+genisligi **16 bit** yaziyor (resmi tarif her tier icin `--act_bitwidth 16`).

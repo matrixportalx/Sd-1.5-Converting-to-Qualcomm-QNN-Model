@@ -58,8 +58,25 @@ _[Sd-1.5-Converting-to-Qualcomm-QNN-Model](https://github.com/matrixportalx/Sd-1
 """
 
 
+def _meta_from_filename(zip_path):
+    """'<Ad>_qnn2.28_min.zip' -> {'runtime': 'qnn2.28', 'tier': 'min'}
+
+    RESMI hat (npuconvertv2) paketi model_info.json icermez — 7 dosya duz
+    durur. Bu yuzden meta veriyi dosya adindan cikariyoruz.
+    """
+    import re
+    b = os.path.basename(zip_path)
+    m = re.search(r"_(qnn[0-9.]+)(?:_(min|8gen1|8gen2|8gen3))?\.zip$", b)
+    if not m:
+        return {}
+    tail = m.group(2) or ""
+    tier = {"": "mid", "min": "min", "8gen3": "high"}.get(tail, "min")
+    return {"runtime": m.group(1), "tier": tier}
+
+
 def _read_model_info(zip_path):
-    """ZIP icindeki model_info.json'dan meta veri okumaya calisir."""
+    """ZIP icindeki model_info.json'dan meta veri okumaya calisir;
+    yoksa dosya adindan cikarir."""
     import json
     import zipfile
     try:
@@ -69,7 +86,7 @@ def _read_model_info(zip_path):
                     return json.loads(zf.read(n))
     except Exception:
         pass
-    return {}
+    return _meta_from_filename(zip_path)
 
 
 def _model_name_from_zip(zip_path: str) -> str:
@@ -153,10 +170,11 @@ def main() -> None:
         tinfo = TIERS.get(tier, {})
         card = MODEL_CARD.format(
             name=model_name,
-            runtime=info.get("runtime", "qnn2.39"),
+            runtime=info.get("runtime", "qnn2.28"),
             tier=tier,
             dsp_arch=info.get("dsp_arch", tinfo.get("dsp_arch", "v69")),
-            act="8" if tier == "min" else "16",
+            # Resmi tarif (npuconvertv2) her tier icin --act_bitwidth 16
+            act=str(info.get("act_bitwidth", 16)),
             resolutions=", ".join(info.get("resolutions", ["512x512"])),
             zip_name=os.path.basename(args.file),
             tier_desc=tinfo.get("desc", ""),

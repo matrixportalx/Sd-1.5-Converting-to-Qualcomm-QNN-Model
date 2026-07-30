@@ -60,8 +60,8 @@ TIERS = {
     "min":  {"dsp_arch": "v69", "soc_model": "SM7450", "soc_id": 57,
              "tail": "_min",
              "desc": "En genis uyumluluk (V69+). Snapdragon 7 Gen 1, 7s Gen 2, "
-                     "8 Gen 1 ve tum ust cihazlar. 8-bit (a8w8) kuantizasyon "
-                     "gerekir; 16-bit MatMul yalnizca v73+ calisir. "
+                     "8 Gen 1 ve tum ust cihazlar. Resmi tarif: 16-bit "
+                     "aktivasyon + kanal-basi 8-bit agirlik, VTCM 2 MB. "
                      "ZIP eki: _qnn<surum>_min"},
     "mid":  {"dsp_arch": "v73", "soc_model": "SM8550", "soc_id": 43,
              "tail": "",
