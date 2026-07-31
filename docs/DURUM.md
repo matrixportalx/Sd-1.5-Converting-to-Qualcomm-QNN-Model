@@ -1608,3 +1608,50 @@ o degiskenler eski defterin form hucresinde tanimliydi. Resmi deftere
 bu yuzden runtime/tier artik **dosya adindan** cikariliyor
 (`*_qnn2.28_min.zip` → `qnn2.28` / `min`) ve model kartinda aktivasyon
 genisligi **16 bit** yaziyor (resmi tarif her tier icin `--act_bitwidth 16`).
+
+## Kayip oturum: sorun sure degil, KOPMA (ve CALIB_LIMIT'in etkisi)
+
+`CALIB_LIMIT=150` denemesi 14 gorselde kesildi, calisma zamani kapandi.
+Iki yanlis varsayimi duzeltmek gerekiyor:
+
+**1. `CALIB_LIMIT` `prepare_data.py`'yi HIC etkilemiyor.** Script prompt
+listesini sabit tutuyor (anime ~20, `--realistic` ~20 cift) ve her biri icin
+tam difuzyon kosuyor. `CALIB_LIMIT` yalnizca sonradan `input_list_*.txt`
+dosyalarini kirpiyor, yani **kuantizasyon** suresini degistiriyor. 24 ile de
+150 ile de `prepare_data` ayni: ~35 dk. Basarili kosuda da bu bedel odenmisti.
+
+**2. Kesilme yavaslktan degil.** 14/20 gorsel bir video suresinde bitmis —
+hiz normal. Mobilde baska uygulamaya gecince tarayici sekmeyi askiya aliyor,
+Colab baglantiyi dusuruyor ve calisma zamani kapaniyor. Colab Pro'da arka plan
+calistirma yok (Pro+ ozelligi).
+
+### Cozum: pahali asamayi HF'e yedekle (`CACHE_REPO`)
+
+`scripts/stage_cache.py` — ozel bir HF **dataset** deposuna
+`data.pkl`, `images/` ve kirpilmamis `input_list_*.full.txt` dosyalarini
+yazar/okur. Boru hattina baglandi:
+
+```
+### 0) onbellek kontrolu  -> varsa indirir, prepare_data ATLANIR
+### 1) prepare_data.py
+### 2) gen_quant_data.py
+### 2b) onbellege yaziliyor -> sonraki oturum 0'da bulur
+```
+
+Drive degil: hesap kotasi yemiyor, ayni `HF_TOKEN` ile calisiyor, yeni oturum
+dogrudan kaynaktan indiriyor. Boylece kopan oturumun maliyeti ~35 dk degil,
+birkac dakikalik indirme.
+
+### Kalibrasyon listeleri artik geri buyutulebilir
+
+Onceki surum `input_list_*.txt`'yi YERINDE kirpiyordu (tek yon: 400 -> 24).
+Artik `gen_quant_data` ciktisi `input_list_*.full.txt` olarak saklaniyor ve
+kirpma her kosuda **tam listeden** yapiliyor; `CALIB_LIMIT` asagi da yukari da
+serbestce degistirilebiliyor.
+
+### Butce notu
+
+A100 (~5,3 birim/saat) bu isin **hicbir** uzun adimini hizlandirmiyor:
+kuantizasyon, model-lib ve context-binary tamamen CPU. GPU sadece
+`prepare_data`'ya yariyor ve o da onbellege alindiginda tek seferlik.
+Mantikli secim: onbellek dolduktan sonra GPU'suz/ucuz calisma zamani.

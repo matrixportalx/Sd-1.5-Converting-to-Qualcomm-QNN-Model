@@ -162,6 +162,23 @@ PYV
 REAL_FLAG=""
 [ "$REALISTIC" = "1" ] && REAL_FLAG="--realistic"
 
+# ---- 0) Onbellek: pahali asamayi HF'den geri al ---------------------------
+# prepare_data.py ~35 dk suruyor ve mobilde sekme arka plana atilinca calisma
+# zamani kapaniyor -> her sey bastan. CACHE_REPO verilirse bu asama TEK SEFER
+# odenir; sonraki oturumlar indirip atlar.
+CACHE_REPO="${CACHE_REPO:-}"
+CACHE_FILES="data.pkl images input_list_unet.full.txt \
+input_list_vae_decoder.full.txt input_list_vae_encoder.full.txt"
+if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ]; then
+  echo "### 0) onbellek kontrolu ($CACHE_REPO)"
+  # SISTEM python'u: kilitli venv'e huggingface_hub eklemiyoruz.
+  python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
+  python3 "$SDIR_SELF/stage_cache.py" pull --repo "$CACHE_REPO" \
+      --key "$NAME" --dir "$SRC" --files $CACHE_FILES || true
+elif [ -n "$CACHE_REPO" ]; then
+  echo "  [!] CACHE_REPO verildi ama HF_TOKEN yok — onbellek kapali"
+fi
+
 # ---- 1) Kalibrasyon verisi (gercek difuzyon kosusu) -----------------------
 if [ ! -f "data.pkl" ]; then
   echo "### 1) prepare_data.py (20 prompt x difuzyon — EN UZUN ADIM)"
@@ -173,26 +190,43 @@ else
   echo "### 1) prepare_data.py [ATLANDI - data.pkl var]"
 fi
 
-if [ ! -f "input_list_unet.txt" ]; then
+if [ ! -f "input_list_unet.full.txt" ]; then
   echo "### 2) gen_quant_data.py"
   "$VENV_PY" gen_quant_data.py
+  # Kirpilmamis listeleri sakla: CALIB_LIMIT'i sonra BUYUTEBILMEK icin.
+  # (Onceki surum listeyi yerinde kirpiyordu; geri cikmak icin gen_quant_data
+  # tekrar kosmak gerekiyordu.)
+  for f in unet vae_decoder vae_encoder; do
+    [ -f "input_list_$f.txt" ] && cp "input_list_$f.txt" "input_list_$f.full.txt"
+  done
 else
   echo "### 2) gen_quant_data.py [ATLANDI]"
 fi
 
-# Hizli deneme: kalibrasyon listesini kirp. Resmi hat 400 ornek kullaniyor ve
-# kuantizasyon saatler suruyor. Once BORU HATTININ calistigini dogrulamak icin
-# kucuk bir sayi, sonra CALIB_LIMIT=0 ile tam kalite.
-if [ "$CALIB_LIMIT" -gt 0 ] 2>/dev/null; then
-  for f in input_list_unet.txt input_list_vae_decoder.txt input_list_vae_encoder.txt; do
-    [ -f "$f" ] || continue
-    n=$(wc -l < "$f")
-    if [ "$n" -gt "$CALIB_LIMIT" ]; then
-      head -n "$CALIB_LIMIT" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-      echo "  [hizli] $f: $n -> $CALIB_LIMIT satir"
-    fi
-  done
+# prepare_data + gen_quant_data bitti -> onbellege yaz (en pahali asama).
+if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ] && [ -f "data.pkl" ]; then
+  echo "### 2b) onbellege yaziliyor ($CACHE_REPO) — sonraki oturum atlar"
+  python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
+  python3 "$SDIR_SELF/stage_cache.py" push --repo "$CACHE_REPO" \
+      --key "$NAME" --dir "$SRC" --files $CACHE_FILES || \
+      echo "  [!] onbellege yazilamadi — devam ediliyor"
 fi
+
+# Kalibrasyon listesi: HER ZAMAN kirpilmamis .full kopyadan uretilir, boylece
+# CALIB_LIMIT hem asagi hem YUKARI degistirilebilir. Resmi hat 400 ornek
+# kullaniyor ve kuantizasyon buna dogru orantili (saatler).
+for f in unet vae_decoder vae_encoder; do
+  full="input_list_$f.full.txt"
+  [ -f "$full" ] || continue
+  n=$(wc -l < "$full")
+  if [ "$CALIB_LIMIT" -gt 0 ] 2>/dev/null && [ "$n" -gt "$CALIB_LIMIT" ]; then
+    head -n "$CALIB_LIMIT" "$full" > "input_list_$f.txt"
+    echo "  [kalib] input_list_$f.txt: $n -> $CALIB_LIMIT satir"
+  else
+    cp "$full" "input_list_$f.txt"
+    echo "  [kalib] input_list_$f.txt: $n satir (tam)"
+  fi
+done
 
 # ---- 3) ONNX export (redefined_modules ile) -------------------------------
 if [ ! -f "unet/model.onnx" ]; then
