@@ -36,6 +36,16 @@ NAME="${2:?model adi}"
 WORK="${3:?work dizini}"
 SOC="${4:-min}"
 
+# Paket adina surum+SOC ekini asagida BIZ ekliyoruz. Kullanici modeli hedef
+# dosya adiyla ("CyberRealistic_qnn2.28_8gen2") adlandirdiginda ek iki kez
+# cikiyordu -> CyberRealistic_qnn2.28_8gen2_qnn2.28_8gen2.zip. Varsa kirp.
+NAME_GIRILEN="$NAME"
+NAME="$(printf '%s' "$NAME" | sed -E 's/_qnn[0-9]+\.[0-9]+(_(min|8gen[0-9]+))?$//')"
+[ -z "$NAME" ] && { echo "HATA: model adi yalnizca surum ekinden olusuyor: $NAME_GIRILEN"; exit 1; }
+if [ "$NAME" != "$NAME_GIRILEN" ]; then
+  echo "  [ad] '$NAME_GIRILEN' -> '$NAME' (surum/SOC eki paket adina zaten eklenir)"
+fi
+
 : "${QNN_SDK_ROOT:?QNN_SDK_ROOT ayarli olmali (2.28 olmali)}"
 
 SDIR_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
