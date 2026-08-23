@@ -9,6 +9,8 @@ derlenir. Kural:
 > Yüksek mimariye derlenen binary, **aşağı** cihazlarda **çalışmaz**.
 
 Bu yüzden geniş uyumluluk isteyen (Snapdragon 7) **en düşük** mimariyi hedefler.
+Ama uyumluluğun bir bedeli var — aşağıdaki [Hangi SOC'u seçmeliyim?](#hangi-socu-seçmeliyim)
+bölümüne bakın.
 
 ## SoC → HTP tablosu
 
@@ -31,27 +33,48 @@ Bu yüzden geniş uyumluluk isteyen (Snapdragon 7) **en düşük** mimariyi hede
 > değişebilir. Kesin değer için `$QNN_SDK_ROOT` içindeki HTP SoC belgesine veya
 > `qnn-platform-validator` çıktısına bakın. `dsp_arch` değeri asıl belirleyicidir.
 
-## Tier'ler (Local Dream "chip level")
+## SOC seçenekleri (Local Dream "chip level")
 
-| Tier | dsp_arch | ZIP eki | Kapsam |
+Resmi hattın (`npuconvertv2`) sunduğu üç seçenek — her biri kendi
+`htp_config_<soc>.json` dosyasıyla derlenir:
+
+| SOC | dsp_arch | ZIP eki | Kapsam |
 |---|---|---|---|
-| **min** | v68 | `_qnn2.39_min` | SD1.5 destekleyen **tüm** cihazlar (V68+). **Snapdragon 7 buradadır.** |
-| mid | v73 | `_qnn2.39` | 8 Gen 2 / 7+ Gen 2 / 8s Gen 3 ve üzeri |
-| high | v75 | `_qnn2.39_8gen3` | 8 Gen 3 ve üzeri (en yüksek performans) |
+| **min** | v68 | `_qnn2.28_min` | SD1.5 destekleyen **tüm** cihazlar (V68+) |
+| **8gen1** | v69 | `_qnn2.28_8gen1` | 8 Gen 1, 7 Gen 1, 7s Gen 2 |
+| **8gen2** | v73 | `_qnn2.28_8gen2` | 8 Gen 2, 8s Gen 3, 7+ Gen 2, 7 Gen 3 |
 
-> Sürüm etiketi (`2.39`) `QNN_VERSION` env / `--qnn-version` ile değiştirilebilir.
+> Yukarıdaki `min`/`8gen1`/`8gen2` isimleri **resmi hattın** değerleridir.
+> Terk edilmiş `convert_all.sh` hattı `min`/`mid`/`high` kullanıyordu; o
+> isimleri kullanmayın.
 
-### Hangi tier'i seçmeliyim?
+### Hangi SOC'u seçmeliyim?
 
-- **Snapdragon 7 (herhangi bir sürüm): `min`.** — Sizin durumunuz.
-- Sadece kendi 8 Gen 2/3 cihazınız için en iyi performans: `mid` / `high`.
-- Emin değilseniz: `min` her yerde çalışır, güvenli seçimdir.
+**Kendi cihazınızın mimarisini seçin.** Düşük mimariye derlenmiş binary yukarı
+cihazlarda *çalışır* ama native derlenmişten belirgin biçimde **yavaştır**.
 
-Tier seçimi `convert_all.sh`'in 3. argümanı veya `03_convert_unet_qnn.sh`'in
-3. argümanıdır:
+Ölçüm (OnePlus 12R / Snapdragon 8 Gen 2 = v73, aynı model, aynı prompt ve seed,
+20 adım · CFG 7 · 512×512):
+
+| | `min` paketi (v68) | `8gen2` paketi (v73) |
+|---|---|---|
+| Görsel üretimi | 13,7 sn | **5,7 sn** (2,4× hızlı) |
+| Model yükleme + graf hazırlığı | ~27,6 sn | **~4,2 sn** (6,5× hızlı) |
+| Görsel kalitesi | — | **aynı** |
+
+- Kendi cihazınız için üretiyorsanız: cihazınıza karşılık gelen SOC.
+- Paketi **paylaşacaksanız** ya da farklı nesil cihazlarda kullanacaksanız: `min`.
+- 8 Gen 3 (v75) / 8 Elite (v79) için ayrı bir seçenek yok; `8gen2` (v73) geriye
+  dönük uyumlu çalışır.
+
+**Kalite SOC'tan bağımsızdır.** Kuantizasyon ayarları (`--act_bitwidth 16`,
+`--use_per_channel_quantization`, `redefined_modules/`, `vtcm_mb: 2`) resmi
+hatta sabittir; SOC yalnızca hedef mimariyi seçer.
+
+SOC seçimi `06_official_pipeline.sh`'in **4. argümanıdır**:
 
 ```bash
-./convert_all.sh model.safetensors MyModel min   # <- min
+bash scripts/06_official_pipeline.sh model.safetensors MyModel work/my 8gen2
 ```
 
 ## SD1.5 alt sınırı

@@ -1,58 +1,125 @@
-# SD 1.5 → Qualcomm QNN (qnn2.39_min) Dönüştürme
+# SD 1.5 → Qualcomm QNN (Local Dream / Ruya) Dönüştürme
 
 civitai / Hugging Face üzerindeki **SD 1.5 `.safetensors`** modellerini,
 telefonunuzdaki **Ruya / Local Dream** uygulamasının NPU'da çalıştırdığı
-**`<isim>_qnn2.39_min.zip`** formatına dönüştürmek için uçtan uca bir toolkit.
+**`<isim>_qnn2.28_<soc>.zip`** formatına dönüştürmek için uçtan uca bir toolkit.
 
-> **Neden `_min`?** Birçok geliştirici artık sadece Snapdragon 8 Gen 2/3 için
-> dönüştürüyor. `_min` varyantı en düşük Hexagon mimarisini (V68+) hedefler ve
-> bu sayede **Snapdragon 7 serisi dahil** tüm uyumlu cihazlarda çalışır. Bu depo
-> tam olarak bu varyantı üretir.
+Dönüşümü **Local Dream'in kendi resmi scriptleri** (`npuconvertv2`) yapar; bu
+depo onları indirir, QNN SDK 2.28 ile doğru sırada koşar ve çıktıyı uygulamanın
+beklediği ZIP düzenine paketler.
+
+> ⚠️ **Kök dizindeki `convert_all.sh` kullanılmıyor.** O, terk edilmiş ilk
+> denemedir (`qairt-converter` → DLC yolu) ve ürettiği paketler **cihazda
+> yüklenmiyor**. Geçerli hat `scripts/06_official_pipeline.sh`'tir. Ayrıntı:
+> [Neden resmi hat?](#neden-resmi-hat)
 
 ---
 
-## Sorunun özü: neden SD7 ≠ SD8?
+## Hızlı başlangıç — Colab (önerilen)
 
-Local Dream'de görüntü üretiminin ağır parçası olan **UNet**, Qualcomm QNN
-**"context binary"** olarak NPU'da (Hexagon HTP/DSP) çalışır. Bir context binary
-**her zaman belirli bir HTP mimari sürümüne** göre derlenir:
+Kendi Linux makineniz yoksa: **link gir → dönüştür → indir / HF'e yükle**
 
-| Snapdragon | HTP (DSP) mimarisi |
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/matrixportalx/Sd-1.5-Converting-to-Qualcomm-QNN-Model/blob/dev/notebook/SD15_NPU.ipynb)
+
+→ [`notebook/SD15_NPU.ipynb`](notebook/SD15_NPU.ipynb)
+
+Gereken tek şey **yüksek bellekli (High-RAM) çalışma zamanı**. SDK ve resmi
+scriptler otomatik iner.
+
+> **civitai token şart.** civitai indirme uçları tokensiz `401` döner.
+> civitai.com → *Account settings → API Keys → Add API key*, sonra Colab
+> **🔑 Secrets → `CIVITAI_TOKEN`** (*Notebook access* açık olmalı). Gated **HF**
+> linkleri için aynı şekilde `HF_TOKEN`.
+
+## Hızlı başlangıç — kendi Linux'unuzda
+
+```bash
+pip install -r requirements.txt
+
+# SDK 2.28'i indir (sürüm önemli — aşağıya bakın)
+python scripts/setup_qnn_sdk.py --dest ./qairt \
+  --asset-url "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/qualcomm_neural_processing_sdk/v2.28.0.241029.zip"
+export QNN_SDK_ROOT=/yol/qairt/2.28.0.241029/qairt/2.28.0.241029
+
+# Uçtan uca dönüştür:  <ckpt> <isim> <work_dir> [min|8gen1|8gen2]
+bash scripts/06_official_pipeline.sh \
+    /indirilenler/CyberRealistic.safetensors CyberRealistic work/cyber 8gen2
+
+# Çıktı:
+#   dist/CyberRealistic_qnn2.28_8gen2.zip
+```
+
+ZIP'i telefona kopyalayıp **Ruya / Local Dream → Settings → Import Custom
+Model** ile içe aktarın.
+
+> Model adını **sade** verin (`CyberRealistic`). Sürüm ve SOC eki paket adına
+> zaten eklenir; `CyberRealistic_qnn2.28_min` yazarsanız ek iki kez görünür.
+
+---
+
+## Hangi SOC'u seçmeliyim?
+
+Bu, dönüşümün **en önemli tek kararıdır** ve kaliteyi değil **hızı** belirler.
+
+| SOC değeri | HTP mimarisi | Hangi cihazlar |
+|---|---|---|
+| `min` | v68 | SD1.5 destekleyen **tüm** cihazlar (Snapdragon 7 serisi dahil) |
+| `8gen1` | v69 | Snapdragon 8 Gen 1, 7 Gen 1, 7s Gen 2 |
+| `8gen2` | v73 | Snapdragon 8 Gen 2, 8s Gen 3, 7+ Gen 2, 7 Gen 3 |
+
+**Kural: kendi cihazınızın mimarisini seçin.** Düşük mimariye derlenmiş bir
+binary yukarı cihazlarda *çalışır* ama **native derlenmişten belirgin biçimde
+yavaştır** — donanımın yeni yeteneklerini kullanamaz.
+
+Ölçüm (OnePlus 12R / Snapdragon 8 Gen 2, aynı model, aynı prompt ve seed,
+20 adım · CFG 7 · 512×512):
+
+| | `min` paketi | `8gen2` paketi |
+|---|---|---|
+| Görsel üretimi | 13,7 sn | **5,7 sn** (2,4× hızlı) |
+| Model yükleme + graf hazırlığı | ~27,6 sn | **~4,2 sn** (6,5× hızlı) |
+| Görsel kalitesi | — | **aynı** |
+
+`min`'i yalnızca paketi **başkalarıyla paylaşacaksanız** ya da farklı nesil
+cihazlarda kullanacaksanız seçin.
+
+### Kalite SOC'tan bağımsızdır
+
+Kaliteyi belirleyen ayarlar resmi hatta **sabittir** ve SOC'a göre değişmez:
+`--act_bitwidth 16`, `--use_per_channel_quantization`, `redefined_modules/`
+(MHA→SHA, Linear→Conv) ve `vtcm_mb: 2`. SOC yalnızca hangi
+`htp_config_<soc>.json` ile derleneceğini seçer.
+
+Dolayısıyla "8gen2 paketleri daha kalitesiz" gibi bir kural **yoktur**; öyle
+görünen hazır paketler, farklı kuantizasyon ayarlarıyla dönüştürülmüş
+olduklarından öyledir.
+
+Cihaz ↔ mimari tam tablosu: [`docs/04-soc-htp-tablosu.md`](docs/04-soc-htp-tablosu.md)
+
+---
+
+## Neden resmi hat?
+
+Bu deponun ilk hattı (`convert_all.sh`, `qairt-converter` → DLC → context
+binary) biçimsel olarak doğru paketler üretiyordu ama **cihazda yüklenmiyorlardı.**
+Resmi scriptler eline geçince sebep anlaşıldı — üçü de bizim tarafta
+çözülemeyecek cinsten:
+
+| bizim (terk edilen) | resmi (`npuconvertv2`) |
 |---|---|
-| 7 Gen 1 / 7s Gen 2 / 8 Gen 1 | v69 |
-| 7+ Gen 2 / 7 Gen 3 / 8 Gen 2 / 8s Gen 3 | v73 |
-| 8 Gen 3 | v75 |
-| 8 Elite | v79 |
+| `qairt-converter` → DLC | `qnn-onnx-converter` → `model.cpp` → `.so` → context binary |
+| `--act_bitwidth 8` + io16 hilesi | **`--act_bitwidth 16`** |
+| per-channel kapalı | `--use_per_channel_quantization` |
+| stok diffusers | `redefined_modules/` — HTP dostu yeniden yazılmış model |
+| VTCM ayarsız | `"vtcm_mb": 2` |
 
-Düşük mimariye (ör. **v68/v69**) derlenmiş bir binary, o sürümden **yukarı**
-olan tüm cihazlarda geriye-dönük uyumlu çalışır. Yüksek mimariye (v75) derlenmiş
-bir binary ise Snapdragon 7'de **çalışmaz**. İşte "sadece SD8 için dönüştürülmüş"
-modellerin telefonunuzda açılmama sebebi budur.
+En kritik fark **girdi sırası**: `qnn-onnx-converter` yolunda sıra
+`model.cpp`'deki bildirim sırasıdır; DLC yolunda "grafta ilk tüketim" kuralına
+göre oluşuyordu ve değiştirilemiyordu. İkincisi, ONNX'i HTP'ye uygun yapan şey
+bayraklar değil **modelin kendisidir** (`redefined_modules/`).
 
-**Çözüm:** UNet'i en düşük mimariye (`tier = min → v68`) hedefleyerek derlemek.
-
----
-
-## Mimari: ZIP'in içinde ne var?
-
-Local Dream SD1.5 modelini **iki motora** böler:
-
-```
-AbsoluteReality_qnn2.39_min.zip
-└── AbsoluteReality/
-    ├── unet_512x512.bin      ← QNN context binary   → NPU (Hexagon)   [QNN'e çevrilir]
-    ├── unet_512x768.bin
-    ├── unet_768x512.bin
-    ├── text_encoder.mnn      ← CLIP metin kodlayıcı  → CPU/GPU (MNN)   [MNN'e çevrilir]
-    ├── vae.mnn               ← VAE çözücü            → CPU/GPU (MNN)   [MNN'e çevrilir]
-    ├── tokenizer/            ← diffusers tokenizer
-    └── model_info.json       ← meta veri
-```
-
-- **Sadece UNet** NPU'da çalışır → QNN'e dönüştürülür (mimariye duyarlı olan kısım).
-- **text_encoder** ve **vae** MNN motorunda (CPU/GPU) çalışır → MNN'e dönüştürülür.
-- NPU sabit (static) şekil istediğinden **her çözünürlük için ayrı UNet** derlenir
-  (varsayılan: 512×512, 512×768, 768×512).
+Kök dizindeki `convert_all.sh`, `config.env` ve `scripts/0[0-5]_*` dosyaları o
+eski hattan kalmadır; referans olarak duruyorlar.
 
 ---
 
@@ -61,86 +128,67 @@ AbsoluteReality_qnn2.39_min.zip
 | Gereksinim | Not |
 |---|---|
 | **İşletim sistemi** | Linux veya Windows'ta **WSL2** (konvertörler yalnızca x86-64 Linux) |
-| **RAM** | 512px için **20 GB+**, yüksek çözünürlük için **64 GB+** (+ swap) |
-| **QAIRT / QNN SDK** | **2.39** — `matrixportalx/qairt-sdk` release'inden **otomatik** (`scripts/setup_qnn_sdk.py`) |
-| **MNN** | `pip install MNN` (`mnnconvert` komutu) |
-| **Python paketleri** | `pip install -r requirements.txt` |
-| **Süre** | Her çözünürlük × her tier **saatler** sürebilir (CPU kuantizasyonu normaldir) |
+| **RAM** | **20 GB+** (rehberin verdiği alt sınır) |
+| **QNN SDK** | **2.28 — sürüm şart.** Pipeline başında doğrulanır; 2.39 ile koşmak saatleri boşa harcar |
+| **Süre** | `prepare_data` ~35 dk (GPU'da ~3 dk), kuantizasyon **saatler** |
+| **GPU** | Yalnızca `prepare_data.py`'yi hızlandırır. Kuantizasyon, model-lib ve context-binary adımları **tamamen CPU**'dur |
 
-> Çıktı varsayılan olarak `_qnn2.39_min` etiketlenir (Ruya derlemesiyle aynı SDK
-> sürümü). `QNN_VERSION=2.28 ./convert_all.sh ...` ile etiketi değiştirebilirsiniz.
+Kurulum ayrıntıları: [`docs/02-gereksinimler.md`](docs/02-gereksinimler.md)
 
-Kurulum ayrıntıları için: [`docs/02-gereksinimler.md`](docs/02-gereksinimler.md)
+### Uzun koşuyu kurtarmak: `CACHE_REPO`
 
----
-
-## Hızlı başlangıç
+En pahalı adım (`prepare_data`, ~35 dk) bir HF deposuna yedeklenebilir. Colab
+oturumu koparsa (mobilde sekme arka plana atılınca oluyor) sonraki çalıştırma o
+adımı **atlar**:
 
 ```bash
-# 0) Bir defaya mahsus kurulum
-pip install -r requirements.txt
-pip install MNN                                    # mnnconvert
-export MNNCONVERT=mnnconvert
-
-# SDK'yı release'ten otomatik indir (public → token gerekmez)
-python scripts/setup_qnn_sdk.py --dest ./qairt
-export QNN_SDK_ROOT="$(python scripts/setup_qnn_sdk.py --dest ./qairt | sed -n 's/^QNN_SDK_ROOT=//p' | tail -1)"
-
-# 1) Uçtan uca dönüştür (Snapdragon 7 için tier = min)
-./convert_all.sh /indirilenler/AbsoluteReality.safetensors AbsoluteReality min
-
-# Çıktı:
-#   dist/AbsoluteReality_qnn2.39_min.zip
+CACHE_REPO=sd-qnn-cache HF_TOKEN=hf_... bash scripts/06_official_pipeline.sh ...
 ```
 
-Bu ZIP'i telefona kopyalayıp **Ruya / Local Dream → Settings → Import Custom
-Model** ile içe aktarın.
+`HF_TOKEN` yoksa önbellek sessizce kapanır.
 
-Adımları tek tek çalıştırmak isterseniz: [`docs/03-donusum-adimlari.md`](docs/03-donusum-adimlari.md)
+### Kalibrasyon örneği sayısı: `CALIB_LIMIT`
 
-### 🚀 Otomatik: Colab veya GitHub Actions
-
-Kendi Linux'unuz yoksa **link gir → dönüştür → HF reponuza yükle** akışını
-hazır bir **Colab notebook** ile yapabilirsiniz:
-
-- **Colab (önerilen):** [`notebooks/SD15_to_QNN_Colab.ipynb`](notebooks/SD15_to_QNN_Colab.ipynb)
-  — safetensors linki + HF token girin, gerisini yapar. SDK release'ten otomatik
-  iner (Drive/manuel indirme yok); tek gereken High-RAM runtime.
-- **GitHub Actions:** [`.github/workflows/convert.yml`](.github/workflows/convert.yml)
-  — **yalnızca self-hosted runner'da** çalışır (ücretsiz runner'lar 20 GB+ RAM
-  gereksinimi nedeniyle yetersiz).
-
-Ayrıntı ve kısıtlar: [`docs/06-otomasyon.md`](docs/06-otomasyon.md)
+Resmi tarif 400 örnek kullanır (saatler). `CALIB_LIMIT` ile kısaltılabilir:
+`24` = boru hattını doğrula, `150` = iyi denge, `0` = tam. Kırpılmamış listeler
+saklandığı için değeri sonradan **büyütmek de** mümkündür — `prepare_data`
+tekrar koşmaz, yalnızca kuantizasyon yenilenir.
 
 ---
 
-## Adımlar (özet)
+## Hat ne yapıyor?
 
-| Adım | Script | Ne yapar |
-|---|---|---|
-| 0 | `scripts/00_load_safetensors.py` | `.safetensors` → diffusers klasörü |
-| 1 | `scripts/01_export_onnx.py` | text_encoder / unet / vae → ONNX (sabit şekil) |
-| 2 | `scripts/02_gen_quant_data.py` | UNet kuantizasyonu için kalibrasyon verisi |
-| 3 | `scripts/03_convert_unet_qnn.sh` | UNet ONNX → **QNN context binary** (`unet_*.bin`) |
-| 4 | `scripts/04_convert_mnn.sh` | text_encoder + vae ONNX → **MNN** (`*.mnn`) |
-| 5 | `scripts/05_package.py` | Hepsini topla → `*_qnn2.39_min.zip` |
+`scripts/06_official_pipeline.sh` sırasıyla:
 
-SoC/tier tablosunu görmek için: `python scripts/soc_targets.py`
-Ayrıntı: [`docs/04-soc-htp-tablosu.md`](docs/04-soc-htp-tablosu.md)
+| Aşama | Ne yapar |
+|---|---|
+| 0 | `CACHE_REPO` varsa önbelleği çeker |
+| 1 | `prepare_data.py` — 20 prompt × difüzyon, kalibrasyon verisi (**en uzun adım**) |
+| 2 | `gen_quant_data.py` — kuantizasyon girdi listeleri |
+| 2b | Önbelleğe yazar |
+| 3 | `export_onnx.py` — `redefined_modules` ile ONNX (sabit şekil) |
+| 4 | `qnn-onnx-converter` → `qnn-model-lib-generator` → `qnn-context-binary-generator` |
+| 5 | Çıktıyı `dist/<isim>_qnn2.28_<soc>.zip` olarak paketler |
 
----
+Resmi scriptler (`npuconvertv2`) çalışma anında indirilir; depoda tutulmaz.
 
-## Önemli notlar ve dürüstlük payı
+### ZIP'in içinde ne var?
 
-- Bu toolkit, **Local Dream'in belgelenmiş dönüştürme mantığını** ve QAIRT 2.39
-  (gerekirse eski QNN 2.28) araç zincirini yeniden üretir. ONNX export ve paketleme adımları burada tam
-  olarak çalışır; **QNN/MNN adımları** ise sizin kurduğunuz SDK'lara bağlıdır.
-- QNN kuantizasyon bayrakları (`ACT_BW`/`WEIGHT_BW`) ve HTP config şeması, SDK
-  sürümüne göre küçük farklılıklar gösterebilir. Bir şey oynamazsa, **çalışan bir
-  resmi `*_qnn2.28_min.zip`** (ör. AbsoluteReality) dosyasının içini açıp dosya
-  adlarını ve `model_info.json` düzenini birebir eşleştirin.
-- **En yetkili kaynak:** Local Dream resmi dönüştürme kılavuzu →
-  <https://ld-guide.chino.icu/zh/conversion/sd15> (Çince; tarayıcı çevirisi yeterli).
+Dosyalar **ZIP kökünde**, fazladan klasör olmadan (uygulamanın beklediği düzen):
+
+```
+CyberRealistic_qnn2.28_8gen2.zip
+├── token_emb.bin      ← CLIP token gömme (ham fp16)
+├── pos_emb.bin        ← pozisyon gömme (ham fp32)
+├── clip_v2.mnn        ← metin kodlayıcı  → CPU/GPU (MNN)
+├── unet.bin           ← QNN context binary → NPU (Hexagon)  [mimariye duyarlı kısım]
+├── vae_decoder.bin    ← QNN
+├── vae_encoder.bin    ← QNN (motor `--no_img2img` verilmedikçe yükler)
+└── tokenizer.json     ← tüm SD1.5 için aynı CLIP tokenizer
+```
+
+Formatın uygulama kaynağından doğrulanmış hâli ve teknik bulgular:
+[`docs/DURUM.md`](docs/DURUM.md)
 
 Sorun giderme: [`docs/05-sorun-giderme.md`](docs/05-sorun-giderme.md)
 
@@ -156,6 +204,7 @@ Qualcomm QNN SDK kendi lisanslarına tabidir.
 ## Kaynaklar
 
 - Local Dream (uygulama): <https://github.com/xororz/local-dream>
-- Dönüştürme kılavuzu: <https://ld-guide.chino.icu/zh/conversion/sd15>
+- **Resmi dönüştürme kılavuzu** (en yetkili kaynak):
+  <https://ld-guide.chino.icu/zh/conversion/sd15> (Çince; tarayıcı çevirisi yeterli)
 - Örnek dönüştürülmüş modeller: Hugging Face `Mr-J-369/*-SD1.5-qnn2.28`
 - Qualcomm AI Engine Direct (QNN) SDK: Qualcomm AI Hub / QPM
