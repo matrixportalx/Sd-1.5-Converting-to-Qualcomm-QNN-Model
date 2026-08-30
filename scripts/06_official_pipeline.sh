@@ -45,6 +45,8 @@ NAME="$(printf '%s' "$NAME" | sed -E 's/_qnn[0-9]+\.[0-9]+(_(min|8gen[0-9]+))?$/
 if [ "$NAME" != "$NAME_GIRILEN" ]; then
   echo "  [ad] '$NAME_GIRILEN' -> '$NAME' (surum/SOC eki paket adina zaten eklenir)"
 fi
+# Dosya sistemi / HF yolu icin guvenli ad. Bosluksuz adlarda NAME ile ayni.
+SLUG="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '_')"
 
 : "${QNN_SDK_ROOT:?QNN_SDK_ROOT ayarli olmali (2.28 olmali)}"
 
@@ -58,7 +60,26 @@ fi
 [ -d "$SRC" ] || { echo "HATA: resmi scriptler alinamadi -> $SRC"; exit 1; }
 # TUM yollar MUTLAK olmali: asagida `cd "$SRC"` yapiyoruz ve goreli yollar
 # o andan itibaren yanlis yeri gosteriyor (ilk surumun hatasi buydu).
-SRC="$(cd "$SRC" && pwd)"
+OFF_DIR="$(cd "$WORK/_official" && pwd)"
+
+# YOLDA BOSLUK: model adi "epiCRealism Natural Sin" gibi bosluk iceriyorsa
+# calisma dizini de bosluklu oluyor ve resmi scriptler bunu kaldirmiyor:
+#   convert_all.sh:38  cd ${current_pwd}   -> "cd: too many arguments"
+# (Alt scriptler goreli yol kullandigi icin hata yalnizca burada patliyor;
+# ayrica qnn-model-lib-generator'in urettigi Makefile de bosluklu yolda
+# derlenmiyor.) Cozum: bosluksuz bir symlink uzerinden calis — venv ve
+# uretilmis dosyalar YERINDE kalir, tasima ya da yeniden kurulum gerekmez.
+case "$OFF_DIR" in
+  *[[:space:]]*)
+    _link="${TMPDIR:-/tmp}/sdqnn/$SLUG"
+    mkdir -p "$(dirname "$_link")"
+    ln -sfn "$OFF_DIR" "$_link"
+    OFF_DIR="$_link"
+    echo "  [yol] calisma dizininde bosluk var -> bosluksuz baglanti: $OFF_DIR"
+    ;;
+esac
+
+SRC="$OFF_DIR/npuconvertv2"
 DIST="$(pwd)/dist"
 
 CLIP_SKIP="${CLIP_SKIP:-2}"
@@ -184,7 +205,7 @@ if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ]; then
   # SISTEM python'u: kilitli venv'e huggingface_hub eklemiyoruz.
   python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
   python3 "$SDIR_SELF/stage_cache.py" pull --repo "$CACHE_REPO" \
-      --key "$NAME" --dir "$SRC" --files $CACHE_FILES || true
+      --key "$SLUG" --dir "$SRC" --files $CACHE_FILES || true
 elif [ -n "$CACHE_REPO" ]; then
   echo "  [!] CACHE_REPO verildi ama HF_TOKEN yok — onbellek kapali"
 fi
@@ -218,7 +239,7 @@ if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ] && [ -f "data.pkl" ]; then
   echo "### 2b) onbellege yaziliyor ($CACHE_REPO) — sonraki oturum atlar"
   python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
   python3 "$SDIR_SELF/stage_cache.py" push --repo "$CACHE_REPO" \
-      --key "$NAME" --dir "$SRC" --files $CACHE_FILES || \
+      --key "$SLUG" --dir "$SRC" --files $CACHE_FILES || \
       echo "  [!] onbellege yazilamadi — devam ediliyor"
 fi
 
@@ -294,9 +315,13 @@ fi
 # Resmi convert_all.sh SDK yolunu SABIT kodluyor (/data/qairt/2.28.0.241029);
 # bizimkine cevirmek icin gecici bir kopya uretiyoruz.
 echo "### 4) QNN donusumu (qnn-onnx-converter -> model-lib -> context-bin)"
+# Ayrica iki `cd` satiri tirnaksiz yazilmis; bosluklu yolda scripti kiriyor.
+# Yukaridaki symlink bunu zaten onluyor, bu sed ikinci emniyet kemeri.
 for f in scripts/convert_all.sh scripts/convert_all_unet_only.sh; do
   [ -f "$f" ] || continue
-  sed -i "s|^QNN_SDK_ROOT=.*|QNN_SDK_ROOT=$ABS_SDK|" "$f"
+  sed -i -e "s|^QNN_SDK_ROOT=.*|QNN_SDK_ROOT=\"$ABS_SDK\"|" \
+         -e 's|^cd \$QNN_SDK_ROOT/bin$|cd "$QNN_SDK_ROOT/bin"|' \
+         -e 's|^cd \${current_pwd}$|cd "${current_pwd}"|' "$f"
 done
 echo "  [sdk] convert_all.sh -> QNN_SDK_ROOT=$ABS_SDK"
 
