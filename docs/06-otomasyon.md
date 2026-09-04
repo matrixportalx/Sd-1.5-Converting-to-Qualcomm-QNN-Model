@@ -6,10 +6,11 @@
 
 ## A) Google Colab (önerilen) ✅
 
-**Dosya:** [`notebooks/SD15_to_QNN_Colab.ipynb`](../notebooks/SD15_to_QNN_Colab.ipynb)
+**Dosya:** [`notebook/SD15_NPU.ipynb`](../notebook/SD15_NPU.ipynb)
+(kökteki `SD15_NPU_Official_Colab.ipynb` aynı defterin kopyasıdır.)
 
-Colab'da açmak için depoyu GitHub'a yükledikten sonra:
-`https://colab.research.google.com/github/matrixportalx/Sd-1.5-Converting-to-Qualcomm-QNN-Model/blob/claude/qnn-model-conversion-snapdragon7-rsk8og/notebooks/SD15_to_QNN_Colab.ipynb`
+Colab bağlantısı:
+`https://colab.research.google.com/github/matrixportalx/Sd-1.5-Converting-to-Qualcomm-QNN-Model/blob/dev/notebook/SD15_NPU.ipynb`
 
 ### Akış
 1. **Runtime → Change runtime type → High-RAM** seç.
@@ -27,7 +28,9 @@ yaparsan Colab Secrets'a `GH_TOKEN` ekle.)
 - **RAM:** 512px için ~20 GB gerekir. Ücretsiz Colab (12 GB) OOM olabilir; notebook
   16 GB swap ekleyerek yardımcı olur ama **Colab Pro / High-RAM** çok daha güvenli.
 - **Süre:** Çözünürlük başına saatler. Sekmeyi kapatma; Colab boşta kalırsa oturum düşer.
-- Birden fazla çözünürlük istiyorsan (512x768, 768x512) süre ve RAM ihtiyacı artar.
+- **Çözünürlük:** 512×512 tabandır; ek boyutlar 1. adımdaki kutulardan seçilir ve
+  her biri **tam bir dönüştürme turu** ekler. Ayrıntı:
+  [`07-cozunurlukler.md`](07-cozunurlukler.md)
 
 ---
 

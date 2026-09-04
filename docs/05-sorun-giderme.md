@@ -65,6 +65,53 @@ Kuantizasyon kalitesi düşük olabilir:
   için `min` (v68) kullanın; `high` (v75) Snapdragon 7'de NPU'da **çalışmaz**.
 - Uygulamada NPU modunun seçili olduğundan emin olun.
 
+## Çözünürlük listesinde yalnızca 512×512 görünüyor
+Paketin içinde `*.patch` dosyası yoktur. Uygulama listeyi tam olarak bu
+dosyalardan çıkarır:
+
+```bash
+unzip -l dist/<isim>_qnn2.28_<soc>.zip | grep '\.patch'
+```
+
+Boşsa `RESOLUTIONS` verilmeden koşulmuş demektir:
+
+```bash
+RESOLUTIONS="512x768,768x512,768x768" bash scripts/06_official_pipeline.sh ...
+```
+
+Taban binary hazır olduğu için o tur atlanır; yalnızca eksik boyutlar koşar.
+Ayrıntı: [`07-cozunurlukler.md`](07-cozunurlukler.md)
+
+## `HATA: zstd YOK — ek cozunurluk yamasi uretilemez`
+Yamalar `zstd --patch-from` ile üretilir. Hat bunu döngünün **önünde** kurmayı
+dener (`apt-get install -y zstd`); root olmayan bir ortamda elle kurun.
+Kontrol dönüşümün başında yapılır — saatler süren kuantizasyondan sonra eksik
+araç yüzünden durulmaz.
+
+## `GPU VAR ama torch ... CUDA goremiyor`
+`prepare_data` CPU'da koşuyor demektir: çözünürlük başına ~3 dk yerine ~35 dk.
+
+Sebebi resmi `pyproject.toml`'un torch'u **CPU sürümüne sabitlemesidir**
+(`torch==2.5.1+cpu`). Üstüne `torch==2.5.1` istemek işe yaramaz: PEP 440'a göre
+yerel etiketsiz `==2.5.1`, kurulu `2.5.1+cpu` tarafından **karşılanır** ve
+uv/pip "already satisfied" deyip geçer. Hat bunu `--reinstall-package torch`
+ile aşar ve sonucu yazıya değil **ölçüme** göre raporlar.
+
+Yine de CUDA görünmüyorsa farklı bir tekerlek deneyin:
+
+```bash
+CUDA_WHL=cu124 bash scripts/06_official_pipeline.sh ...   # ya da cu118
+```
+
+Not: GPU **yalnızca** `prepare_data`'yı hızlandırır. Kuantizasyon, model-lib ve
+context-binary tamamen CPU'dur; onların kısıtı RAM'dir. Ücretsiz Colab'da GPU
+seçmek RAM'i düşürdüğü için kuantizasyonu OOM'a sokar.
+
+## Ruya "bu boyut için yama yok" diyip başlamıyor
+Beklenen davranış. Yamasız bir boyutta motor latent'i 96×96 üretir ama graf
+64×64 bekler; çıktı sessizce renkli gürültü olurdu. Boyutu paketle birlikte
+üretin ya da 512×512'de kalın.
+
 ## Yardımcı olabilecek kesin kaynak
 Resmi dönüştürme kılavuzu (Çince, tarayıcı çevirisiyle okunur):
 <https://ld-guide.chino.icu/zh/conversion/sd15>
