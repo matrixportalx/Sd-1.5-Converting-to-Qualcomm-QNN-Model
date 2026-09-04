@@ -150,8 +150,11 @@ if [ -f "$ZIP_PATH" ]; then
 fi
 
 # Ortam damgasi: kurulum sekli degistiginde venv yeniden kurulsun.
+# NOT: damga CUDA'yi ICERMEZ. CUDA torch asagida ayri, fikirsiz (idempotent)
+# bir adim olarak kuruluyor; boylece kurulum tutmadiginda bir sonraki kosu
+# venv'i BASTAN kurmadan yalnizca torch'u tekrar deniyor.
 ENV_STAMP="$SRC/.venv/.setup_version"
-ENV_WANT="v2 cuda=$CUDA_TORCH $CU"
+ENV_WANT="v3"
 VENV_PY="$SRC/.venv/bin/python"
 if [ ! -x "$VENV_PY" ] || [ "$(cat "$ENV_STAMP" 2>/dev/null)" != "$ENV_WANT" ]; then
   echo "### resmi Python ortami kuruluyor ($ENV_WANT)"
@@ -159,15 +162,6 @@ if [ ! -x "$VENV_PY" ] || [ "$(cat "$ENV_STAMP" 2>/dev/null)" != "$ENV_WANT" ]; 
   command -v uv >/dev/null 2>&1 || { echo "HATA: uv kurulamadi"; exit 1; }
   uv venv -p 3.10 --clear
   uv sync                       # KILITLI surumler — QNN 2.28 ile uyumlu
-  if [ "$CUDA_TORCH" = "1" ]; then
-    echo "  [cuda] CUDA torch kilitli kurulumun ustune ekleniyor ($CU)"
-    nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/         /'
-    uv pip install --python "$SRC/.venv/bin/python" "torch==2.5.1" \
-        --index-url "https://download.pytorch.org/whl/$CU" \
-      || echo "  [!] CUDA torch kurulamadi — CPU torch ile devam"
-  else
-    echo "  [cuda] GPU yok/kapali -> CPU torch (prepare_data yavas olacak)"
-  fi
   echo "$ENV_WANT" > "$ENV_STAMP"
 fi
 if [ ! -x "$VENV_PY" ]; then
@@ -178,6 +172,49 @@ fi
 export PATH="$SRC/.venv/bin:$PATH"
 export VIRTUAL_ENV="$SRC/.venv"
 echo "  [python] $("$VENV_PY" -V)  ($VENV_PY)"
+
+# ---- CUDA torch -----------------------------------------------------------
+# Resmi pyproject torch'un CPU surumunu SABITLIYOR (torch==2.5.1+cpu, index
+# .../whl/cpu). GPU'lu bir calisma zamaninda bunu asmak gerekiyor.
+#
+# TUZAK (uzun sure fark edilmedi): kurulu surum 2.5.1+cpu iken
+#     uv pip install "torch==2.5.1" --index-url .../whl/cu121
+# HICBIR SEY KURMAZ. PEP 440'a gore yerel etiketsiz bir '==2.5.1' istegi
+# '2.5.1+cpu' tarafindan KARSILANIR; uv/pip "already satisfied" deyip gecer.
+# Log'da "CUDA torch ekleniyor" yaziyor ama torch CPU kaliyor ve prepare_data
+# ~3 dk yerine ~35 dk suruyor (cozunurluk basina!). Cozum iki parcali:
+#   1) --reinstall-package torch  -> istek karsilansa da yeniden kur
+#   2) sonucu OLC (torch.cuda.is_available), yaziya degil olcume guven
+torch_durumu() {   # "<surum> <0|1>"
+  "$VENV_PY" -c 'import torch;print(torch.__version__, int(torch.cuda.is_available()))' \
+      2>/dev/null || echo "yok 0"
+}
+GPU_VAR=0
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+  GPU_VAR=1
+  nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/  [gpu] /'
+else
+  echo "  [gpu] GPU yok"
+fi
+if [ "$CUDA_TORCH" = "1" ] && [ "$(torch_durumu | awk '{print $2}')" != "1" ]; then
+  echo "  [cuda] CUDA torch kuruluyor ($CU) — kilitli 2.5.1+cpu'nun YERINE"
+  echo "         (~2.5 GB iner; prepare_data ~35 dk yerine ~3 dk surer)"
+  uv pip install --python "$VENV_PY" --reinstall-package torch \
+      --index-url "https://download.pytorch.org/whl/$CU" "torch==2.5.1" \
+    || echo "  [!] CUDA torch kurulamadi — CPU torch ile devam"
+fi
+TORCH_DURUM="$(torch_durumu)"
+TORCH_VER="${TORCH_DURUM%% *}"; TORCH_CUDA="${TORCH_DURUM##* }"
+if [ "$TORCH_CUDA" = "1" ]; then
+  echo "  [cuda] torch $TORCH_VER — CUDA ETKIN"
+elif [ "$GPU_VAR" = "1" ]; then
+  echo "  [!] GPU VAR ama torch $TORCH_VER CUDA goremiyor."
+  echo "      prepare_data CPU'da kosacak: cozunurluk basina ~35 dk."
+  echo "      Farkli bir CUDA tekerlegi denemek icin: CUDA_WHL=cu124 (ya da cu118)"
+else
+  echo "  [cuda] torch $TORCH_VER — CPU (prepare_data yavas olacak)"
+fi
+
 "$VENV_PY" - <<'PYV' || true
 import importlib
 for m in ("onnx", "protobuf", "numpy", "torch"):
