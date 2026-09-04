@@ -22,6 +22,7 @@ Kendi Linux makineniz yoksa: **link gir → dönüştür → indir / HF'e yükle
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/matrixportalx/Sd-1.5-Converting-to-Qualcomm-QNN-Model/blob/dev/notebook/SD15_NPU.ipynb)
 
 → [`notebook/SD15_NPU.ipynb`](notebook/SD15_NPU.ipynb)
+(kökteki [`SD15_NPU_Official_Colab.ipynb`](SD15_NPU_Official_Colab.ipynb) aynı defterin kopyasıdır — eski bağlantılar bozulmasın diye duruyor.)
 
 Gereken tek şey **yüksek bellekli (High-RAM) çalışma zamanı**. SDK ve resmi
 scriptler otomatik iner.
@@ -43,6 +44,10 @@ export QNN_SDK_ROOT=/yol/qairt/2.28.0.241029/qairt/2.28.0.241029
 
 # Uçtan uca dönüştür:  <ckpt> <isim> <work_dir> [min|8gen1|8gen2]
 bash scripts/06_official_pipeline.sh \
+    /indirilenler/CyberRealistic.safetensors CyberRealistic work/cyber 8gen2
+
+# 512×512 dışında boyutlar da isteniyorsa (her biri ayrı bir dönüştürme turu):
+RESOLUTIONS="512x768,768x512,768x768" bash scripts/06_official_pipeline.sh \
     /indirilenler/CyberRealistic.safetensors CyberRealistic work/cyber 8gen2
 
 # Çıktı:
@@ -98,6 +103,57 @@ Cihaz ↔ mimari tam tablosu: [`docs/04-soc-htp-tablosu.md`](docs/04-soc-htp-tab
 
 ---
 
+## Çözünürlükler
+
+NPU'da çözünürlük bir istek parametresi **değil**, derleme zamanı özelliğidir:
+`unet.bin` sabit tensör şekilleriyle derlenir. Bu yüzden uygulama taban
+512×512 binary'sini yükler ve başka bir boyut istendiğinde model klasöründeki
+**zstd yamasını** açılışta `unet.bin`'e uygular. Yaması olmayan bir boyut
+seçilemez (Ruya bu durumda üretime hiç başlamaz — yamasız 768 istenirse çıktı
+renkli gürültü olurdu).
+
+```bash
+RESOLUTIONS="512x768,768x512,768x768,768x1024,1024x768,1024x1024" \
+  bash scripts/06_official_pipeline.sh <ckpt> <isim> <work> 8gen2
+```
+
+512×512 **her zaman** üretilir (yamaların tabanı odur); listeye yazmaya gerek
+yoktur. Yamalar paketin köküne, `unet.bin`'in yanına konur:
+
+| Boyut | Dosya |
+|---|---|
+| 768×768 | `768.patch` (kare boyutlar tek sayıyla) |
+| 1024×1024 | `1024.patch` |
+| 512×768 | `512x768.patch` (dikdörtgen boyutlar `WxH`) |
+| 768×512 | `768x512.patch` |
+
+Kenarlar **64'ün katı** olmalıdır (SD1.5 UNet latent'i 3 kez yarılar).
+
+### Bedeli
+
+Her ek çözünürlük **tam bir dönüştürme turudur**: o boyutta kalibrasyon verisi
+(`prepare_data`) + ONNX + kuantizasyon baştan koşar. Yalnızca UNet yeniden
+üretilir — CLIP ve VAE taban koşudan gelir.
+
+| | süre | RAM |
+|---|---|---|
+| taban 512×512 | 1× | ~20 GB |
+| her ek boyut | +1× | 768 için ~2×, 1024 için ~4× |
+
+Bu yüzden hat **kaldığı yerden devam eder**: biten bir çözünürlüğün yaması
+pakette varsa o tur atlanır, `CACHE_REPO` doluysa hem kalibrasyon verisi hem
+üretilmiş binary + yamalar Hugging Face'e yedeklenir. Kopan Colab oturumu
+tekrar başlatıldığında yalnızca eksik boyutlar koşar.
+
+### `min` uyarısı
+
+Resmi tarif ek çözünürlükleri yalnızca `8gen1`/`8gen2` için üretir
+(*"Non-flagship SOC versions can't run higher resolutions"*). `min` ile de
+yama üretilir ama v68 sınıfı cihazlarda yüklenmeyebilir. 1024 kenarlı
+boyutlar cihaz tarafında VTCM'ye sığmayabilir; önce 768 ile doğrulayın.
+
+---
+
 ## Neden resmi hat?
 
 Bu deponun ilk hattı (`convert_all.sh`, `qairt-converter` → DLC → context
@@ -130,16 +186,20 @@ eski hattan kalmadır; referans olarak duruyorlar.
 | **İşletim sistemi** | Linux veya Windows'ta **WSL2** (konvertörler yalnızca x86-64 Linux) |
 | **RAM** | **20 GB+** (rehberin verdiği alt sınır) |
 | **QNN SDK** | **2.28 — sürüm şart.** Pipeline başında doğrulanır; 2.39 ile koşmak saatleri boşa harcar |
-| **Süre** | `prepare_data` ~35 dk (GPU'da ~3 dk), kuantizasyon **saatler** |
-| **GPU** | Yalnızca `prepare_data.py`'yi hızlandırır. Kuantizasyon, model-lib ve context-binary adımları **tamamen CPU**'dur |
+| **Süre** | `prepare_data` ~35 dk (GPU'da ~3 dk), kuantizasyon **saatler** — **her ek çözünürlük bunu bir kez daha koşar** |
+| **GPU** | Yalnızca `prepare_data.py`'yi hızlandırır (kuantizasyon/model-lib/context-binary **tamamen CPU**). Hat CUDA torch'u kilitli CPU sürümünün yerine kurar ve sonucu **ölçer**: `[cuda] torch … CUDA ETKIN` |
 
 Kurulum ayrıntıları: [`docs/02-gereksinimler.md`](docs/02-gereksinimler.md)
 
 ### Uzun koşuyu kurtarmak: `CACHE_REPO`
 
-En pahalı adım (`prepare_data`, ~35 dk) bir HF deposuna yedeklenebilir. Colab
-oturumu koparsa (mobilde sekme arka plana atılınca oluyor) sonraki çalıştırma o
-adımı **atlar**:
+En pahalı adımlar bir HF deposuna yedeklenebilir. Colab oturumu koparsa
+(mobilde sekme arka plana atılınca oluyor) sonraki çalıştırma kaldığı yerden
+devam eder. Yedeklenenler:
+
+- `<slug>/res_<WxH>/` — her çözünürlüğün `prepare_data` çıktısı (`data.pkl`, `images/`)
+- `<slug>/out_<soc>/` — birikmiş çıktı: taban binary + o ana kadarki yamalar
+  (`CACHE_OUTPUT=0` ile kapatılabilir)
 
 ```bash
 CACHE_REPO=sd-qnn-cache HF_TOKEN=hf_... bash scripts/06_official_pipeline.sh ...
@@ -162,13 +222,21 @@ tekrar koşmaz, yalnızca kuantizasyon yenilenir.
 
 | Aşama | Ne yapar |
 |---|---|
-| 0 | `CACHE_REPO` varsa önbelleği çeker |
+| — | `uv` ortamı (kilitli sürümler), libc++ / clang / zstd, CUDA torch |
+| **taban 512×512** | |
+| 0 | `CACHE_REPO` varsa önbelleği çeker (kalibrasyon verisi + birikmiş çıktı) |
 | 1 | `prepare_data.py` — 20 prompt × difüzyon, kalibrasyon verisi (**en uzun adım**) |
 | 2 | `gen_quant_data.py` — kuantizasyon girdi listeleri |
 | 2b | Önbelleğe yazar |
 | 3 | `export_onnx.py` — `redefined_modules` ile ONNX (sabit şekil) |
 | 4 | `qnn-onnx-converter` → `qnn-model-lib-generator` → `qnn-context-binary-generator` |
-| 5 | Çıktıyı `dist/<isim>_qnn2.28_<soc>.zip` olarak paketler |
+| **her ek çözünürlük** | (yalnızca `RESOLUTIONS` verilmişse) |
+| 1–2 | aynı adımlar, o boyutta |
+| 3 | `export_onnx_unet_only.py --width W --height H` |
+| 4 | `convert_all_unet_only.sh` — yalnızca UNet |
+| 5 | `zstd --patch-from <taban unet.bin>` → `768.patch` / `512x768.patch` |
+| **son** | |
+| 6 | Çıktıyı `dist/<isim>_qnn2.28_<soc>.zip` olarak paketler |
 
 Resmi scriptler (`npuconvertv2`) çalışma anında indirilir; depoda tutulmaz.
 
@@ -184,8 +252,13 @@ CyberRealistic_qnn2.28_8gen2.zip
 ├── unet.bin           ← QNN context binary → NPU (Hexagon)  [mimariye duyarlı kısım]
 ├── vae_decoder.bin    ← QNN
 ├── vae_encoder.bin    ← QNN (motor `--no_img2img` verilmedikçe yükler)
-└── tokenizer.json     ← tüm SD1.5 için aynı CLIP tokenizer
+├── tokenizer.json     ← tüm SD1.5 için aynı CLIP tokenizer
+├── 768.patch          ← (varsa) 768×768 için unet.bin zstd yaması
+└── 512x768.patch      ← (varsa) 512×768 için …
 ```
+
+`*.patch` dosyaları yalnızca `RESOLUTIONS` verildiğinde oluşur; uygulamanın
+çözünürlük listesi tam olarak bu dosyalardan çıkarılır.
 
 Formatın uygulama kaynağından doğrulanmış hâli ve teknik bulgular:
 [`docs/DURUM.md`](docs/DURUM.md)

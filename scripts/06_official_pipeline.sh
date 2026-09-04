@@ -27,6 +27,29 @@
 #
 #   Ayrica htp_config_min.json'da "vtcm_mb": 2 — biz VTCM'yi hic ayarlamiyorduk.
 #
+# ---------------------------------------------------------------------------
+# COZUNURLUK
+#
+# QNN'de cozunurluk istek parametresi DEGIL, derleme zamani ozelligidir:
+# unet.bin sabit tensor sekilleriyle derlenir. Uygulama (Ruya / Local Dream)
+# taban 512x512 binary'sini yukler ve baska bir boyut istendiginde model
+# klasorundeki zstd YAMASINI acilista unet.bin'e uygular:
+#
+#     768.patch        -> 768x768   (kare yamalar tek sayiyla adlandirilir)
+#     512x768.patch    -> 512x768   (dikdortgen yamalar WxH)
+#
+# Resmi export.sh de tam olarak bunu yapar: her ek cozunurluk icin
+# prepare_data -> gen_quant_data -> export_onnx_unet_only -> convert_all_unet_only
+# kosulur, cikan unet.bin taban unet.bin'e karsi 'zstd --patch-from' ile
+# farklanir ve yama paketin icine konur. VAE/CLIP yamalanmaz; yalnizca UNet.
+#
+#   RESOLUTIONS="512x768,768x512,768x768" scripts/06_official_pipeline.sh ...
+#
+# 512x512 her zaman uretilir (yamalarin taban aldigi binary odur), listede
+# yazmaya gerek yoktur. Her ek cozunurluk TAM bir kalibrasyon + kuantizasyon
+# turudur: sure ve RAM taban kosunun aynisi kadar artar.
+# ---------------------------------------------------------------------------
+#
 # Kullanim:
 #   scripts/06_official_pipeline.sh <ckpt> <isim> <work_dir> [min|8gen1|8gen2]
 set -euo pipefail
@@ -49,6 +72,34 @@ fi
 SLUG="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '_')"
 
 : "${QNN_SDK_ROOT:?QNN_SDK_ROOT ayarli olmali (2.28 olmali)}"
+
+# ---- Cozunurluk listesi ---------------------------------------------------
+# Taban her zaman 512x512. RESOLUTIONS yalnizca EK boyutlari sayar; 512x512
+# yazilirsa sessizce cikarilir (zaten uretiliyor).
+BASE_RES="512x512"
+EXTRA_RES=""
+for _item in $(printf '%s' "${RESOLUTIONS:-}" | tr ',;Xx' '  xx' | tr -s ' '); do
+  case "$_item" in
+    *x*) ;;
+    *) echo "HATA: cozunurluk 'GENISLIKxYUKSEKLIK' olmali (or. 768x512): $_item"; exit 1 ;;
+  esac
+  _w="${_item%%x*}"; _h="${_item##*x}"
+  case "$_w$_h" in
+    ""|*[!0-9]*) echo "HATA: cozunurluk sayisal degil: $_item"; exit 1 ;;
+  esac
+  # SD1.5 UNet 3 kez yari boyuta iner -> latent 8'in, piksel 64'un kati olmali.
+  if [ $((_w % 64)) -ne 0 ] || [ $((_h % 64)) -ne 0 ]; then
+    echo "HATA: $_item — kenarlar 64'un kati olmali (512, 576, 640, 704, 768, 1024 ...)"
+    exit 1
+  fi
+  if [ "$_w" = 512 ] && [ "$_h" = 512 ]; then
+    echo "  [cozunurluk] 512x512 taban — ek listeden cikarildi"
+    continue
+  fi
+  case " $EXTRA_RES " in *" ${_w}x${_h} "*) continue ;; esac
+  EXTRA_RES="$EXTRA_RES ${_w}x${_h}"
+done
+EXTRA_RES="$(printf '%s' "$EXTRA_RES" | sed 's/^ *//')"
 
 SDIR_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$WORK/_official/npuconvertv2"
@@ -89,7 +140,25 @@ CALIB_LIMIT="${CALIB_LIMIT:-0}"  # 0 = kirpma yok (resmi: 400 ornek)
 echo "=========================================================="
 echo " RESMI HAT: $NAME  (soc=$SOC, clip_skip=$CLIP_SKIP)"
 echo " SDK: $QNN_SDK_ROOT"
+echo " Cozunurluk: $BASE_RES (taban)${EXTRA_RES:+ + yama: $EXTRA_RES}"
 echo "=========================================================="
+
+if [ -n "$EXTRA_RES" ]; then
+  # Resmi export.sh ek cozunurlukleri YALNIZCA 8gen1/8gen2 icin uretir:
+  # "Non-flagship SOC versions can't run higher resolutions".
+  if [ "$SOC" = "min" ]; then
+    echo "  [!] SOC=min ile ek cozunurluk isteniyor. Resmi tarif bunu yapmiyor:"
+    echo "      dusuk HTP (v68) kusaklari yuksek cozunurlugu kaldiramiyor."
+    echo "      Yama uretilir ama cihazda yuklenmeyebilir; 8gen1/8gen2 onerilir."
+  fi
+  case " $EXTRA_RES " in
+    *1024*)
+      echo "  [!] 1024 kenarli cozunurluk var. Kuantizasyon RAM'i 512'ye gore"
+      echo "      ~4x artar (20 GB alt sinir -> cok daha fazlasi) ve cihaz"
+      echo "      tarafinda VTCM'ye sigmayabilir. Once 768 ile dogrulayin."
+      ;;
+  esac
+fi
 
 # 2.28 kontrolu — yanlis surumle kosmak saatleri bosa harcar
 case "$QNN_SDK_ROOT" in
@@ -150,8 +219,11 @@ if [ -f "$ZIP_PATH" ]; then
 fi
 
 # Ortam damgasi: kurulum sekli degistiginde venv yeniden kurulsun.
+# NOT: damga CUDA'yi ICERMEZ. CUDA torch asagida ayri, fikirsiz (idempotent)
+# bir adim olarak kuruluyor; boylece kurulum tutmadiginda bir sonraki kosu
+# venv'i BASTAN kurmadan yalnizca torch'u tekrar deniyor.
 ENV_STAMP="$SRC/.venv/.setup_version"
-ENV_WANT="v2 cuda=$CUDA_TORCH $CU"
+ENV_WANT="v3"
 VENV_PY="$SRC/.venv/bin/python"
 if [ ! -x "$VENV_PY" ] || [ "$(cat "$ENV_STAMP" 2>/dev/null)" != "$ENV_WANT" ]; then
   echo "### resmi Python ortami kuruluyor ($ENV_WANT)"
@@ -159,15 +231,6 @@ if [ ! -x "$VENV_PY" ] || [ "$(cat "$ENV_STAMP" 2>/dev/null)" != "$ENV_WANT" ]; 
   command -v uv >/dev/null 2>&1 || { echo "HATA: uv kurulamadi"; exit 1; }
   uv venv -p 3.10 --clear
   uv sync                       # KILITLI surumler — QNN 2.28 ile uyumlu
-  if [ "$CUDA_TORCH" = "1" ]; then
-    echo "  [cuda] CUDA torch kilitli kurulumun ustune ekleniyor ($CU)"
-    nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/         /'
-    uv pip install --python "$SRC/.venv/bin/python" "torch==2.5.1" \
-        --index-url "https://download.pytorch.org/whl/$CU" \
-      || echo "  [!] CUDA torch kurulamadi — CPU torch ile devam"
-  else
-    echo "  [cuda] GPU yok/kapali -> CPU torch (prepare_data yavas olacak)"
-  fi
   echo "$ENV_WANT" > "$ENV_STAMP"
 fi
 if [ ! -x "$VENV_PY" ]; then
@@ -178,6 +241,49 @@ fi
 export PATH="$SRC/.venv/bin:$PATH"
 export VIRTUAL_ENV="$SRC/.venv"
 echo "  [python] $("$VENV_PY" -V)  ($VENV_PY)"
+
+# ---- CUDA torch -----------------------------------------------------------
+# Resmi pyproject torch'un CPU surumunu SABITLIYOR (torch==2.5.1+cpu, index
+# .../whl/cpu). GPU'lu bir calisma zamaninda bunu asmak gerekiyor.
+#
+# TUZAK (uzun sure fark edilmedi): kurulu surum 2.5.1+cpu iken
+#     uv pip install "torch==2.5.1" --index-url .../whl/cu121
+# HICBIR SEY KURMAZ. PEP 440'a gore yerel etiketsiz bir '==2.5.1' istegi
+# '2.5.1+cpu' tarafindan KARSILANIR; uv/pip "already satisfied" deyip gecer.
+# Log'da "CUDA torch ekleniyor" yaziyor ama torch CPU kaliyor ve prepare_data
+# ~3 dk yerine ~35 dk suruyor (cozunurluk basina!). Cozum iki parcali:
+#   1) --reinstall-package torch  -> istek karsilansa da yeniden kur
+#   2) sonucu OLC (torch.cuda.is_available), yaziya degil olcume guven
+torch_durumu() {   # "<surum> <0|1>"
+  "$VENV_PY" -c 'import torch;print(torch.__version__, int(torch.cuda.is_available()))' \
+      2>/dev/null || echo "yok 0"
+}
+GPU_VAR=0
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+  GPU_VAR=1
+  nvidia-smi -L 2>/dev/null | head -1 | sed 's/^/  [gpu] /'
+else
+  echo "  [gpu] GPU yok"
+fi
+if [ "$CUDA_TORCH" = "1" ] && [ "$(torch_durumu | awk '{print $2}')" != "1" ]; then
+  echo "  [cuda] CUDA torch kuruluyor ($CU) — kilitli 2.5.1+cpu'nun YERINE"
+  echo "         (~2.5 GB iner; prepare_data ~35 dk yerine ~3 dk surer)"
+  uv pip install --python "$VENV_PY" --reinstall-package torch \
+      --index-url "https://download.pytorch.org/whl/$CU" "torch==2.5.1" \
+    || echo "  [!] CUDA torch kurulamadi — CPU torch ile devam"
+fi
+TORCH_DURUM="$(torch_durumu)"
+TORCH_VER="${TORCH_DURUM%% *}"; TORCH_CUDA="${TORCH_DURUM##* }"
+if [ "$TORCH_CUDA" = "1" ]; then
+  echo "  [cuda] torch $TORCH_VER — CUDA ETKIN"
+elif [ "$GPU_VAR" = "1" ]; then
+  echo "  [!] GPU VAR ama torch $TORCH_VER CUDA goremiyor."
+  echo "      prepare_data CPU'da kosacak: cozunurluk basina ~35 dk."
+  echo "      Farkli bir CUDA tekerlegi denemek icin: CUDA_WHL=cu124 (ya da cu118)"
+else
+  echo "  [cuda] torch $TORCH_VER — CPU (prepare_data yavas olacak)"
+fi
+
 "$VENV_PY" - <<'PYV' || true
 import importlib
 for m in ("onnx", "protobuf", "numpy", "torch"):
@@ -188,98 +294,29 @@ for m in ("onnx", "protobuf", "numpy", "torch"):
         print(f"  [surum] {m:9s} YOK ({type(e).__name__})")
 PYV
 
-# ---- Modeli yerine koy ----------------------------------------------------
-# prepare_data.py/export_onnx.py --model_path bekliyor; mutlak yol veriyoruz.
 REAL_FLAG=""
 [ "$REALISTIC" = "1" ] && REAL_FLAG="--realistic"
 
-# ---- 0) Onbellek: pahali asamayi HF'den geri al ---------------------------
-# prepare_data.py ~35 dk suruyor ve mobilde sekme arka plana atilinca calisma
-# zamani kapaniyor -> her sey bastan. CACHE_REPO verilirse bu asama TEK SEFER
-# odenir; sonraki oturumlar indirip atlar.
-CACHE_REPO="${CACHE_REPO:-}"
-CACHE_FILES="data.pkl images input_list_unet.full.txt \
-input_list_vae_decoder.full.txt input_list_vae_encoder.full.txt"
-if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ]; then
-  echo "### 0) onbellek kontrolu ($CACHE_REPO)"
-  # SISTEM python'u: kilitli venv'e huggingface_hub eklemiyoruz.
-  python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
-  python3 "$SDIR_SELF/stage_cache.py" pull --repo "$CACHE_REPO" \
-      --key "$SLUG" --dir "$SRC" --files $CACHE_FILES || true
-elif [ -n "$CACHE_REPO" ]; then
-  echo "  [!] CACHE_REPO verildi ama HF_TOKEN yok — onbellek kapali"
-fi
-
-# ---- 1) Kalibrasyon verisi (gercek difuzyon kosusu) -----------------------
-if [ ! -f "data.pkl" ]; then
-  echo "### 1) prepare_data.py (20 prompt x difuzyon — EN UZUN ADIM)"
-  "$VENV_PY" -c "import torch;print('    [torch]', torch.__version__,
-        'cuda:', torch.cuda.is_available(),
-        torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')" || true
-  "$VENV_PY" prepare_data.py --model_path "$ABS_CKPT" --clip_skip "$CLIP_SKIP" $REAL_FLAG
-else
-  echo "### 1) prepare_data.py [ATLANDI - data.pkl var]"
-fi
-
-if [ ! -f "input_list_unet.full.txt" ]; then
-  echo "### 2) gen_quant_data.py"
-  "$VENV_PY" gen_quant_data.py
-  # Kirpilmamis listeleri sakla: CALIB_LIMIT'i sonra BUYUTEBILMEK icin.
-  # (Onceki surum listeyi yerinde kirpiyordu; geri cikmak icin gen_quant_data
-  # tekrar kosmak gerekiyordu.)
-  for f in unet vae_decoder vae_encoder; do
-    [ -f "input_list_$f.txt" ] && cp "input_list_$f.txt" "input_list_$f.full.txt"
-  done
-else
-  echo "### 2) gen_quant_data.py [ATLANDI]"
-fi
-
-# prepare_data + gen_quant_data bitti -> onbellege yaz (en pahali asama).
-if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ] && [ -f "data.pkl" ]; then
-  echo "### 2b) onbellege yaziliyor ($CACHE_REPO) — sonraki oturum atlar"
-  python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
-  python3 "$SDIR_SELF/stage_cache.py" push --repo "$CACHE_REPO" \
-      --key "$SLUG" --dir "$SRC" --files $CACHE_FILES || \
-      echo "  [!] onbellege yazilamadi — devam ediliyor"
-fi
-
-# Kalibrasyon listesi: HER ZAMAN kirpilmamis .full kopyadan uretilir, boylece
-# CALIB_LIMIT hem asagi hem YUKARI degistirilebilir. Resmi hat 400 ornek
-# kullaniyor ve kuantizasyon buna dogru orantili (saatler).
-for f in unet vae_decoder vae_encoder; do
-  full="input_list_$f.full.txt"
-  [ -f "$full" ] || continue
-  n=$(wc -l < "$full")
-  if [ "$CALIB_LIMIT" -gt 0 ] 2>/dev/null && [ "$n" -gt "$CALIB_LIMIT" ]; then
-    head -n "$CALIB_LIMIT" "$full" > "input_list_$f.txt"
-    echo "  [kalib] input_list_$f.txt: $n -> $CALIB_LIMIT satir"
-  else
-    cp "$full" "input_list_$f.txt"
-    echo "  [kalib] input_list_$f.txt: $n satir (tam)"
-  fi
-done
-
-# ---- 3) ONNX export (redefined_modules ile) -------------------------------
-if [ ! -f "unet/model.onnx" ]; then
-  echo "### 3) export_onnx.py (redefined_modules: MHA->SHA, Linear->Conv)"
-  "$VENV_PY" export_onnx.py --model_path "$ABS_CKPT" --clip_skip "$CLIP_SKIP"
-else
-  echo "### 3) export_onnx.py [ATLANDI - unet/model.onnx var]"
-fi
-
-# ---- 3b) Sistem bagimliliklari --------------------------------------------
-# Colab imajinda iki sey eksik:
+# ---- Sistem bagimliliklari ------------------------------------------------
+# Colab imajinda uc sey eksik:
 #   1) libc++  — QNN 2.28'in Python baglantilari (libPyIrGraph) LLVM libc++'a
 #      bagli: "ImportError: libc++.so.1: cannot open shared object file"
 #   2) clang++ — qnn-model-lib-generator uretilen model.cpp'yi clang ile
 #      derliyor: "Could not find compiler: clang++"
-_need_libcxx=0; _need_clang=0
+#   3) zstd    — ek cozunurluk yamalari 'zstd --patch-from' ile uretiliyor
+# Dongunun ONUNDE kuruluyor: saatler suren kuantizasyondan sonra eksik bir
+# arac yuzunden durmak en pahali hata.
+_need_libcxx=0; _need_clang=0; _need_zstd=0
 ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1' || _need_libcxx=1
 command -v clang++ >/dev/null 2>&1 || _need_clang=1
-if [ "$_need_libcxx" = "1" ] || [ "$_need_clang" = "1" ]; then
-  echo "### 3b) sistem bagimliliklari kuruluyor" \
+if [ -n "$EXTRA_RES" ]; then
+  command -v zstd >/dev/null 2>&1 || _need_zstd=1
+fi
+if [ "$_need_libcxx" = "1" ] || [ "$_need_clang" = "1" ] || [ "$_need_zstd" = "1" ]; then
+  echo "### sistem bagimliliklari kuruluyor" \
        "$([ "$_need_libcxx" = 1 ] && echo libc++)" \
-       "$([ "$_need_clang" = 1 ] && echo clang)"
+       "$([ "$_need_clang" = 1 ] && echo clang)" \
+       "$([ "$_need_zstd" = 1 ] && echo zstd)"
   (apt-get -qq update -y >/dev/null 2>&1 || true)
   if [ "$_need_libcxx" = "1" ]; then
     apt-get -qq install -y libc++1 libc++abi1 >/dev/null 2>&1 \
@@ -299,6 +336,9 @@ if [ "$_need_libcxx" = "1" ] || [ "$_need_clang" = "1" ]; then
       done
     fi
   fi
+  if [ "$_need_zstd" = "1" ]; then
+    apt-get -qq install -y zstd >/dev/null 2>&1 || true
+  fi
   ldconfig 2>/dev/null || true
 fi
 ldconfig -p 2>/dev/null | grep -q 'libc++\.so\.1' \
@@ -310,11 +350,18 @@ else
   echo "  [!] clang++ YOK — qnn-model-lib-generator derleyemez"
   echo "      Elle: apt-get install -y clang"
 fi
+if [ -n "$EXTRA_RES" ]; then
+  if command -v zstd >/dev/null 2>&1; then
+    echo "  [deps] $(zstd --version 2>/dev/null | head -1)"
+  else
+    echo "HATA: zstd YOK — ek cozunurluk yamasi uretilemez."
+    echo "      Elle: apt-get install -y zstd"
+    exit 1
+  fi
+fi
 
-# ---- 4) QNN donusumu ------------------------------------------------------
-# Resmi convert_all.sh SDK yolunu SABIT kodluyor (/data/qairt/2.28.0.241029);
-# bizimkine cevirmek icin gecici bir kopya uretiyoruz.
-echo "### 4) QNN donusumu (qnn-onnx-converter -> model-lib -> context-bin)"
+# ---- Resmi convert scriptlerini bizim SDK'ya bagla ------------------------
+# Resmi convert_all.sh SDK yolunu SABIT kodluyor (/data/qairt/2.28.0.241029).
 # Ayrica iki `cd` satiri tirnaksiz yazilmis; bosluklu yolda scripti kiriyor.
 # Yukaridaki symlink bunu zaten onluyor, bu sed ikinci emniyet kemeri.
 for f in scripts/convert_all.sh scripts/convert_all_unet_only.sh; do
@@ -325,24 +372,235 @@ for f in scripts/convert_all.sh scripts/convert_all_unet_only.sh; do
 done
 echo "  [sdk] convert_all.sh -> QNN_SDK_ROOT=$ABS_SDK"
 
-# envsetup.sh 'source' edilmesi gerekiyor; resmi script bunu kendisi yapiyor.
-bash scripts/convert_all.sh --min_soc "$SOC"
+# ---- Onbellek yardimcilari ------------------------------------------------
+# prepare_data.py ~35 dk suruyor ve mobilde sekme arka plana atilinca calisma
+# zamani kapaniyor -> her sey bastan. CACHE_REPO verilirse bu asama HER
+# COZUNURLUK ICIN TEK SEFER odenir; sonraki oturumlar indirip atlar.
+#
+# Anahtar duzeni:  <slug>/res_<WxH>   -> kalibrasyon verisi (cozunurluge ozel)
+#                  <slug>/out_<soc>   -> birikmis cikti (taban binary + yamalar)
+# 512x512 icin cok cozunurluk oncesi kosulardan kalan DUZ <slug> anahtari da
+# yedek olarak denenir, boylece eski onbellekler bosa gitmez.
+CACHE_REPO="${CACHE_REPO:-}"
+CACHE_OUTPUT="${CACHE_OUTPUT:-1}"
+CACHE_FILES="data.pkl images input_list_unet.full.txt \
+input_list_vae_decoder.full.txt input_list_vae_encoder.full.txt"
+CACHE_ON=0
+if [ -n "$CACHE_REPO" ] && [ -n "${HF_TOKEN:-}" ]; then
+  CACHE_ON=1
+  # SISTEM python'u: kilitli venv'e huggingface_hub eklemiyoruz.
+  python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
+elif [ -n "$CACHE_REPO" ]; then
+  echo "  [!] CACHE_REPO verildi ama HF_TOKEN yok — onbellek kapali"
+fi
 
-OUT="output/qnn_models_$SOC"
+cache_pull() {  # <anahtar> <dosyalar...>
+  [ "$CACHE_ON" = "1" ] || return 0
+  local key="$1"; shift
+  python3 "$SDIR_SELF/stage_cache.py" pull --repo "$CACHE_REPO" \
+      --key "$key" --dir "$SRC" --files "$@" || true
+}
+cache_push() {  # <anahtar> <dosyalar...>
+  [ "$CACHE_ON" = "1" ] || return 0
+  local key="$1"; shift
+  python3 "$SDIR_SELF/stage_cache.py" push --repo "$CACHE_REPO" \
+      --key "$key" --dir "$SRC" --files "$@" \
+    || echo "  [!] onbellege yazilamadi — devam ediliyor"
+}
+
+# ---- Cozunurluk yardimcilari ----------------------------------------------
+OUT_BASE="output_512"        # resmi export.sh ile ayni ad
+OUT_DIR="$OUT_BASE/qnn_models_$SOC"
+
+# Ruya/Local Dream'in yama tarayicisi kare boyutlari TEK sayiyla, dikdortgen
+# boyutlari WxH ile adlandiriyor.
+patch_name() {  # <W> <H>
+  if [ "$1" = "$2" ]; then printf '%s.patch' "$1"; else printf '%sx%s.patch' "$1" "$2"; fi
+}
+
+# Bir cozunurluge gecmeden once o cozunurluge ozel her sey silinir. Resmi
+# scriptler "varsa atla" mantigiyla calisiyor (data.pkl, unet/model.onnx,
+# qnn_unet/.../libmodel.so); temizlenmezse ikinci cozunurluk sessizce
+# BIRINCININ ciktisini yeniden paketler.
+reset_stage() {
+  rm -rf data.pkl images output unet qnn_unet \
+         unet_input_raw vae_decoder_input_raw vae_encoder_input_raw
+  rm -f input_list_unet.txt input_list_vae_decoder.txt input_list_vae_encoder.txt \
+        input_list_unet.full.txt input_list_vae_decoder.full.txt \
+        input_list_vae_encoder.full.txt
+}
+
+# prepare_data + gen_quant_data + kalibrasyon listesi kirpma.
+stage_data() {  # <W> <H>
+  local w="$1" h="$2" res="$1x$2" key="$SLUG/res_$1x$2"
+
+  echo "### [$res] 0) onbellek kontrolu"
+  cache_pull "$key" $CACHE_FILES
+  if [ "$res" = "$BASE_RES" ] && [ ! -f "data.pkl" ]; then
+    # cok cozunurluk oncesi duz anahtar
+    cache_pull "$SLUG" $CACHE_FILES
+  fi
+
+  if [ ! -f "data.pkl" ]; then
+    echo "### [$res] 1) prepare_data.py (20 prompt x difuzyon — EN UZUN ADIM)"
+    "$VENV_PY" -c "import torch;print('    [torch]', torch.__version__,
+          'cuda:', torch.cuda.is_available(),
+          torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')" || true
+    "$VENV_PY" prepare_data.py --model_path "$ABS_CKPT" --clip_skip "$CLIP_SKIP" \
+        --width "$w" --height "$h" $REAL_FLAG
+  else
+    echo "### [$res] 1) prepare_data.py [ATLANDI - data.pkl var]"
+  fi
+
+  if [ ! -f "input_list_unet.full.txt" ]; then
+    echo "### [$res] 2) gen_quant_data.py"
+    "$VENV_PY" gen_quant_data.py
+    # Kirpilmamis listeleri sakla: CALIB_LIMIT'i sonra BUYUTEBILMEK icin.
+    # (Onceki surum listeyi yerinde kirpiyordu; geri cikmak icin gen_quant_data
+    # tekrar kosmak gerekiyordu.)
+    for f in unet vae_decoder vae_encoder; do
+      [ -f "input_list_$f.txt" ] && cp "input_list_$f.txt" "input_list_$f.full.txt"
+    done
+  else
+    echo "### [$res] 2) gen_quant_data.py [ATLANDI]"
+  fi
+
+  # En pahali asama bitti -> onbellege yaz.
+  if [ -f "data.pkl" ]; then
+    echo "### [$res] 2b) onbellege yaziliyor — sonraki oturum atlar"
+    cache_push "$key" $CACHE_FILES
+  fi
+
+  # Kalibrasyon listesi: HER ZAMAN kirpilmamis .full kopyadan uretilir, boylece
+  # CALIB_LIMIT hem asagi hem YUKARI degistirilebilir. Resmi hat 400 ornek
+  # kullaniyor ve kuantizasyon buna dogru orantili (saatler).
+  for f in unet vae_decoder vae_encoder; do
+    local full="input_list_$f.full.txt"
+    [ -f "$full" ] || continue
+    local n; n=$(wc -l < "$full")
+    if [ "$CALIB_LIMIT" -gt 0 ] 2>/dev/null && [ "$n" -gt "$CALIB_LIMIT" ]; then
+      head -n "$CALIB_LIMIT" "$full" > "input_list_$f.txt"
+      echo "  [kalib] input_list_$f.txt: $n -> $CALIB_LIMIT satir"
+    else
+      cp "$full" "input_list_$f.txt"
+      echo "  [kalib] input_list_$f.txt: $n satir (tam)"
+    fi
+  done
+}
+
+# export_onnx*.py'ye verilecek model yolu. Ilk kosuda safetensors'tan
+# diffusers dizini ('./model') dokuluyor (~4 GB, dakikalar); sonraki
+# cozunurluklerde ayni dokumu tekrar yapmanin anlami yok.
+model_path_arg() {
+  if [ -f "$SRC/model/model_index.json" ] && [ -f "$SRC/model/unet/config.json" ]; then
+    printf './model'
+  else
+    printf '%s' "$ABS_CKPT"
+  fi
+}
+
 echo
-echo "### 5) cikti"
-ls -la "$OUT" | sed 's/^/    /'
+echo "=========================================================="
+echo " TABAN: $BASE_RES"
+echo "=========================================================="
 
-# ---- 6) Paket -------------------------------------------------------------
+# Onceki surum ciktiyi 'output/' altinda birakiyordu; devam eden kosular
+# bastan baslamasin diye tasiyoruz.
+if [ ! -d "$OUT_BASE" ] && [ -f "output/qnn_models_$SOC/unet.bin" ]; then
+  echo "  [gec] output/ -> $OUT_BASE (onceki surumden devam)"
+  mv output "$OUT_BASE"
+fi
+# Birikmis ciktiyi (taban binary + o ana kadarki yamalar) onbellekten al.
+if [ "$CACHE_ON" = "1" ] && [ "$CACHE_OUTPUT" = "1" ] && [ ! -d "$OUT_BASE" ]; then
+  cache_pull "$SLUG/out_$SOC" "$OUT_BASE"
+fi
+
+if [ -f "$OUT_DIR/unet.bin" ]; then
+  echo "### [$BASE_RES] [ATLANDI - $OUT_DIR/unet.bin var]"
+else
+  stage_data 512 512
+
+  if [ ! -f "unet/model.onnx" ]; then
+    echo "### [$BASE_RES] 3) export_onnx.py (redefined_modules: MHA->SHA, Linear->Conv)"
+    "$VENV_PY" export_onnx.py --model_path "$(model_path_arg)" --clip_skip "$CLIP_SKIP"
+  else
+    echo "### [$BASE_RES] 3) export_onnx.py [ATLANDI - unet/model.onnx var]"
+  fi
+
+  echo "### [$BASE_RES] 4) QNN donusumu (clip + vae + unet)"
+  bash scripts/convert_all.sh --min_soc "$SOC"
+
+  mkdir -p "$OUT_BASE"
+  cp -a output/. "$OUT_BASE"/
+  rm -rf output
+  [ -f "$OUT_DIR/unet.bin" ] || { echo "HATA: taban unet.bin uretilemedi"; exit 1; }
+  if [ "$CACHE_ON" = "1" ] && [ "$CACHE_OUTPUT" = "1" ]; then
+    echo "### [$BASE_RES] 4b) cikti onbellege yaziliyor"
+    cache_push "$SLUG/out_$SOC" "$OUT_BASE"
+  fi
+fi
+
+# ---- Ek cozunurlukler -----------------------------------------------------
+# Her biri: kalibrasyon + ONNX + kuantizasyon (yalnizca UNet), sonra taban
+# unet.bin'e karsi zstd farki. VAE/CLIP tekrar donusturulmez.
+for res in $EXTRA_RES; do
+  w="${res%%x*}"; h="${res##*x}"
+  pname="$(patch_name "$w" "$h")"
+  if [ -f "$OUT_DIR/$pname" ]; then
+    echo
+    echo "### [$res] [ATLANDI - $pname var]"
+    continue
+  fi
+  echo
+  echo "=========================================================="
+  echo " EK COZUNURLUK: $res  ->  $pname"
+  echo "=========================================================="
+  reset_stage
+  stage_data "$w" "$h"
+
+  echo "### [$res] 3) export_onnx_unet_only.py"
+  "$VENV_PY" export_onnx_unet_only.py --model_path "$(model_path_arg)" \
+      --clip_skip "$CLIP_SKIP" --width "$w" --height "$h"
+
+  echo "### [$res] 4) QNN donusumu (yalnizca UNet)"
+  bash scripts/convert_all_unet_only.sh --min_soc "$SOC"
+
+  NEW_UNET="output/qnn_models_$SOC/unet.bin"
+  [ -f "$NEW_UNET" ] || { echo "HATA: $res icin unet.bin uretilemedi"; exit 1; }
+
+  echo "### [$res] 5) zstd yamasi: $pname"
+  # Resmi export.sh ile ayni cagri (varsayilan sikistirma). --patch-from
+  # pencere boyutunu sozluge gore kendisi buyutuyor; ekstra bayrak vermiyoruz
+  # cunku cihazdaki cozucu resmi paketlerdekiyle ayni varsayimla calisiyor.
+  zstd -f --patch-from "$OUT_DIR/unet.bin" "$NEW_UNET" -o "$OUT_DIR/$pname"
+  ls -la "$OUT_DIR/$pname" | sed 's/^/    /'
+
+  # Disk: her tur ~7 GB ara dosya birakiyor, Colab'da yer dar.
+  rm -rf output unet qnn_unet
+
+  if [ "$CACHE_ON" = "1" ] && [ "$CACHE_OUTPUT" = "1" ]; then
+    echo "### [$res] 6) cikti onbellege yaziliyor"
+    cache_push "$SLUG/out_$SOC" "$OUT_BASE"
+  fi
+done
+
+echo
+echo "### cikti"
+ls -la "$OUT_DIR" | sed 's/^/    /'
+
+# ---- Paket ----------------------------------------------------------------
 # Referans paketlerde dosyalar ZIP KOKUNDE (klasor yok) — resmi export.sh
 # 'zip -r ... output_512/qnn_models_min' yaptigi icin orada klasorlu; biz
-# uygulamanin bekledigi duz yapiyi uretiyoruz.
+# uygulamanin bekledigi duz yapiyi uretiyoruz. Yamalar da kokte durur:
+# uygulama unet.bin'in yanindaki *.patch dosyalarini tarayarak hangi
+# cozunurluklerin secilebilecegini buluyor.
 mkdir -p "$DIST"
 ZIP="$DIST/${NAME}_qnn2.28_${SOC}.zip"
 rm -f "$ZIP"
-( cd "$OUT" && zip -q -r "$ZIP" . )
+( cd "$OUT_DIR" && zip -q -r "$ZIP" . )
 echo
 echo "########################################################"
 echo " BITTI. Cikti: $ZIP"
+echo " Cozunurlukler: $BASE_RES${EXTRA_RES:+ $EXTRA_RES}"
 unzip -l "$ZIP" | sed 's/^/    /'
 echo "########################################################"

@@ -18,6 +18,7 @@ Gerekli: yazma (write) izinli HF token -> export HF_TOKEN=hf_xxxx
 """
 import argparse
 import os
+import re
 import sys
 
 # soc_targets'i CWD'den bagimsiz import edebilmek icin
@@ -58,35 +59,92 @@ _[Sd-1.5-Converting-to-Qualcomm-QNN-Model](https://github.com/matrixportalx/Sd-1
 """
 
 
-def _meta_from_filename(zip_path):
-    """'<Ad>_qnn2.28_min.zip' -> {'runtime': 'qnn2.28', 'tier': 'min'}
+# Resmi hattin (npuconvertv2) SOC adlari ile HTP mimarileri. Degerler paketle
+# gelen htp_config_<soc>.json dosyalarindan alinmistir — TIERS tablosu eski
+# hattin (min/mid/high) adlandirmasidir ve bunlarla ortusmez.
+OFFICIAL_SOCS = {
+    "min":   {"dsp_arch": "v68",
+              "desc": "SD1.5 destekleyen tum cihazlar (Snapdragon 7 serisi dahil)"},
+    "8gen1": {"dsp_arch": "v69",
+              "desc": "Snapdragon 8 Gen 1, 7 Gen 1, 7s Gen 2"},
+    "8gen2": {"dsp_arch": "v73",
+              "desc": "Snapdragon 8 Gen 2, 8s Gen 3, 7+ Gen 2, 7 Gen 3"},
+    "8gen3": {"dsp_arch": "v75",
+              "desc": "Snapdragon 8 Gen 3 ve uzeri"},
+}
 
-    RESMI hat (npuconvertv2) paketi model_info.json icermez — 7 dosya duz
-    durur. Bu yuzden meta veriyi dosya adindan cikariyoruz.
+
+def _meta_from_filename(zip_path):
+    """'<Ad>_qnn2.28_8gen2.zip' -> {'runtime': 'qnn2.28', 'tier': '8gen2', ...}
+
+    RESMI hat (npuconvertv2) paketi model_info.json icermez — dosyalar duz
+    durur. Bu yuzden meta veriyi dosya adindan cikariyoruz. Ekteki SOC adi
+    paketin DERLENDIGI HTP mimarisini belirler; eski surum 8gen1/8gen2'yi de
+    'min' (v68) sayip model kartina yanlis mimari yaziyordu.
     """
-    import re
     b = os.path.basename(zip_path)
     m = re.search(r"_(qnn[0-9.]+)(?:_(min|8gen1|8gen2|8gen3))?\.zip$", b)
     if not m:
         return {}
-    tail = m.group(2) or ""
-    tier = {"": "mid", "min": "min", "8gen3": "high"}.get(tail, "min")
-    return {"runtime": m.group(1), "tier": tier}
+    tail = m.group(2) or "mid"          # eksik ek = eski hattin 'mid' tier'i
+    info = {"runtime": m.group(1), "tier": tail}
+    info.update(OFFICIAL_SOCS.get(tail, {}))
+    return info
+
+
+def _resolutions_from_zip(zip_path):
+    """Pakette hangi cozunurluklerin secilebilecegini YAMA DOSYALARINDAN cikarir.
+
+    QNN'de cozunurluk derleme zamani ozelligidir: unet.bin 512x512 icindir,
+    diger boyutlar yaninda duran zstd yamalaridir. Uygulama (Ruya / Local
+    Dream) da listeyi tam olarak boyle tariyor:
+        768.patch      -> 768x768   (kare yamalar tek sayiyla)
+        512x768.patch  -> 512x768   (dikdortgen yamalar WxH)
+    """
+    import zipfile
+    square = re.compile(r"^(\d+)\.patch$")
+    rect = re.compile(r"^(\d+)x(\d+)\.patch$")
+    found = [(512, 512)]
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for n in zf.namelist():
+                base = os.path.basename(n)
+                m = square.match(base)
+                if m:
+                    found.append((int(m.group(1)), int(m.group(1))))
+                    continue
+                m = rect.match(base)
+                if m:
+                    found.append((int(m.group(1)), int(m.group(2))))
+    except Exception:
+        pass
+    seen, out = set(), []
+    for w, h in sorted(found, key=lambda t: t[0] * t[1]):
+        if (w, h) not in seen:
+            seen.add((w, h))
+            out.append(f"{w}x{h}")
+    return out
 
 
 def _read_model_info(zip_path):
     """ZIP icindeki model_info.json'dan meta veri okumaya calisir;
-    yoksa dosya adindan cikarir."""
+    yoksa dosya adindan cikarir. Cozunurluk listesi her iki durumda da
+    paketin kendi yama dosyalarindan gelir (model_info.json'da yok)."""
     import json
     import zipfile
+    info = None
     try:
         with zipfile.ZipFile(zip_path) as zf:
             for n in zf.namelist():
                 if n.endswith("model_info.json"):
-                    return json.loads(zf.read(n))
+                    info = json.loads(zf.read(n))
+                    break
     except Exception:
         pass
-    return _meta_from_filename(zip_path)
+    if info is None:
+        info = _meta_from_filename(zip_path)
+    info.setdefault("resolutions", _resolutions_from_zip(zip_path))
+    return info
 
 
 def _model_name_from_zip(zip_path: str) -> str:
@@ -167,7 +225,7 @@ def main() -> None:
         except Exception:
             TIERS = {}
         tier = info.get("tier", "min")
-        tinfo = TIERS.get(tier, {})
+        tinfo = OFFICIAL_SOCS.get(tier) or TIERS.get(tier, {})
         card = MODEL_CARD.format(
             name=model_name,
             runtime=info.get("runtime", "qnn2.28"),
