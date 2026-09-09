@@ -8,11 +8,6 @@ Dönüşümü **Local Dream'in kendi resmi scriptleri** (`npuconvertv2`) yapar; 
 depo onları indirir, QNN SDK 2.28 ile doğru sırada koşar ve çıktıyı uygulamanın
 beklediği ZIP düzenine paketler.
 
-> ⚠️ **Kök dizindeki `convert_all.sh` kullanılmıyor.** O, terk edilmiş ilk
-> denemedir (`qairt-converter` → DLC yolu) ve ürettiği paketler **cihazda
-> yüklenmiyor**. Geçerli hat `scripts/06_official_pipeline.sh`'tir. Ayrıntı:
-> [Neden resmi hat?](#neden-resmi-hat)
-
 ---
 
 ## Hızlı başlangıç — Colab (önerilen)
@@ -157,7 +152,8 @@ boyutlar cihaz tarafında VTCM'ye sığmayabilir; önce 768 ile doğrulayın.
 ## Neden resmi hat?
 
 Bu deponun ilk hattı (`convert_all.sh`, `qairt-converter` → DLC → context
-binary) biçimsel olarak doğru paketler üretiyordu ama **cihazda yüklenmiyorlardı.**
+binary; artık depoda **yok**) biçimsel olarak doğru paketler üretiyordu ama
+**cihazda yüklenmiyorlardı.**
 Resmi scriptler eline geçince sebep anlaşıldı — üçü de bizim tarafta
 çözülemeyecek cinsten:
 
@@ -174,8 +170,10 @@ En kritik fark **girdi sırası**: `qnn-onnx-converter` yolunda sıra
 göre oluşuyordu ve değiştirilemiyordu. İkincisi, ONNX'i HTP'ye uygun yapan şey
 bayraklar değil **modelin kendisidir** (`redefined_modules/`).
 
-Kök dizindeki `convert_all.sh`, `config.env` ve `scripts/0[0-5]_*` dosyaları o
-eski hattan kalmadır; referans olarak duruyorlar.
+O hattan kalan dosyalar (`convert_all.sh`, `scripts/0[0-5]_*`, `probe_*`,
+`gen_io_*` ve GitHub Actions workflow'u) **silindi**: çalışmayan bir yolu
+doğruymuş gibi gösteriyorlardı. Depoda artık yalnızca gerçekten koşan yol var.
+Gerekirse git geçmişinden okunabilirler.
 
 ---
 

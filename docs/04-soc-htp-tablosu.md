@@ -45,8 +45,8 @@ Resmi hattın (`npuconvertv2`) sunduğu üç seçenek — her biri kendi
 | **8gen2** | v73 | `_qnn2.28_8gen2` | 8 Gen 2, 8s Gen 3, 7+ Gen 2, 7 Gen 3 |
 
 > Yukarıdaki `min`/`8gen1`/`8gen2` isimleri **resmi hattın** değerleridir.
-> Terk edilmiş `convert_all.sh` hattı `min`/`mid`/`high` kullanıyordu; o
-> isimleri kullanmayın.
+> Depodan silinen eski hat `min`/`mid`/`high` kullanıyordu; eski notlarda o
+> isimlere rastlarsanız kullanmayın.
 
 ### Hangi SOC'u seçmeliyim?
 

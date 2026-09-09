@@ -47,30 +47,30 @@ KNOWN_SOCS = [
 
 
 # --- Cihaz siniflari (Local Dream'in "chip level" mantigini yansitir) ----------
-# Bir context binary'si hedeflenen dsp_arch'tan YUKARI cihazlarda da calisir.
-# Bu yuzden her "tier" tek bir taban mimariyi hedefler:
+# Bir context binary'si hedeflenen dsp_arch'tan YUKARI cihazlarda da calisir;
+# bu yuzden her tier tek bir taban mimariyi hedefler. Isimler RESMI HATTIN
+# (npuconvertv2 htp_config_<soc>.json) degerleridir; 06_official_pipeline.sh
+# 4. konum argumaniyla bunlardan birini alir.
 #
-#   min  -> v68 tabanli. SD1.5 destekleyen (V68+) TUM cihazlar. -> Snapdragon 7
-#   mid  -> v73 tabanli. 8 Gen 2 / 7+ Gen 2 / 8s Gen 3 ve uzeri.
-#   high -> v75 tabanli. 8 Gen 3 ve uzeri (en iyi performans).
+# NOT: depodan silinen eski hat min/mid/high kullaniyordu. Eski notlarda o
+# isimlere rastlarsaniz karsiligi: mid -> 8gen2, high -> 8gen3.
 #
-# Ruya uygulamaniz "..._qnn2.28_min.zip" istedigi icin sizin tier'iniz "min".
-# ZIP eki: _qnn<surum><tail>  (surum --qnn-version ile, varsayilan 2.39)
+# ZIP eki: _qnn2.28<tail>
 TIERS = {
-    "min":  {"dsp_arch": "v69", "soc_model": "SM7450", "soc_id": 57,
-             "tail": "_min",
-             "desc": "En genis uyumluluk (V69+). Snapdragon 7 Gen 1, 7s Gen 2, "
-                     "8 Gen 1 ve tum ust cihazlar. Resmi tarif: 16-bit "
-                     "aktivasyon + kanal-basi 8-bit agirlik, VTCM 2 MB. "
-                     "ZIP eki: _qnn<surum>_min"},
-    "mid":  {"dsp_arch": "v73", "soc_model": "SM8550", "soc_id": 43,
-             "tail": "",
-             "desc": "Snapdragon 8 Gen 2 / 7+ Gen 2 / 8s Gen 3 ve uzeri. "
-                     "ZIP eki: _qnn<surum>"},
-    "high": {"dsp_arch": "v75", "soc_model": "SM8650", "soc_id": 57,
-             "tail": "_8gen3",
-             "desc": "Snapdragon 8 Gen 3 ve uzeri (en yuksek performans). "
-                     "ZIP eki: _qnn<surum>_8gen3"},
+    "min":   {"dsp_arch": "v68", "soc_model": "SM7450", "soc_id": 57,
+              "tail": "_min",
+              "desc": "En genis uyumluluk (V68+). Snapdragon 7 Gen 1, 7s Gen 2 "
+                      "ve tum ust cihazlar. Resmi tarif: 16-bit aktivasyon + "
+                      "kanal-basi 8-bit agirlik, VTCM 2 MB."},
+    "8gen1": {"dsp_arch": "v69", "soc_model": "SM8450", "soc_id": 36,
+              "tail": "_8gen1",
+              "desc": "Snapdragon 8 Gen 1, 7 Gen 1, 7s Gen 2."},
+    "8gen2": {"dsp_arch": "v73", "soc_model": "SM8550", "soc_id": 43,
+              "tail": "_8gen2",
+              "desc": "Snapdragon 8 Gen 2, 8s Gen 3, 7+ Gen 2, 7 Gen 3."},
+    "8gen3": {"dsp_arch": "v75", "soc_model": "SM8650", "soc_id": 57,
+              "tail": "_8gen3",
+              "desc": "Snapdragon 8 Gen 3 ve uzeri (en yuksek performans)."},
 }
 
 

@@ -154,8 +154,6 @@ def main():
                     help="Dogrudan indirme linki (API'yi atlar)")
     ap.add_argument("--token", default=os.environ.get("GH_TOKEN")
                     or os.environ.get("GITHUB_TOKEN"))
-    ap.add_argument("--github-env", action="store_true",
-                    help="QNN_SDK_ROOT'u $GITHUB_ENV'e de yaz (Actions)")
     args = ap.parse_args()
 
     # config.env -> OVERRIDE_QAIRT_ASSET_URL / OVERRIDE_QAIRT_TAG
@@ -225,15 +223,9 @@ def main():
             if os.path.exists(archive):
                 os.remove(archive)
             print(f"\n[!] Indirilemedi: {url}\n    ({type(e).__name__}: {e})\n")
-            try:
-                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                import probe_qairt_versions as probe
-                probe.main()
-            except Exception as pe:
-                print(f"[!] Yoklama da calismadi: {pe}")
-            sys.exit("HATA: SDK indirilemedi. Yukaridaki listeden calisan bir "
-                     "surumu config.env icindeki OVERRIDE_QAIRT_ASSET_URL "
-                     "satirina yazip 4. adimi tekrar calistirin.")
+            sys.exit("HATA: SDK indirilemedi. Calisan bir surum URL'sini "
+                     "config.env icindeki OVERRIDE_QAIRT_ASSET_URL satirina "
+                     "yazip 4. adimi tekrar calistirin.")
     else:
         print(f"[*] Arsiv onbellekten: {archive} "
               f"({os.path.getsize(archive)>>20} MB)")
@@ -246,9 +238,6 @@ def main():
 
     make_bins_executable(root)
     print(f"[+] QNN_SDK_ROOT = {root}")
-    if args.github_env and os.environ.get("GITHUB_ENV"):
-        with open(os.environ["GITHUB_ENV"], "a") as f:
-            f.write(f"QNN_SDK_ROOT={root}\n")
     # Kabuk yakalayabilsin diye son satir:
     print(f"QNN_SDK_ROOT={root}")
 

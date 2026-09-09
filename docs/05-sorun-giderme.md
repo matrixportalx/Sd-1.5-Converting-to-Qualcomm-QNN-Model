@@ -5,14 +5,17 @@
 `ls $QNN_SDK_ROOT/bin/x86_64-linux-clang/qnn-onnx-converter` ile doğrulayın.
 
 ## `Python 3.12 is unsupported` / `libc++.so.1: cannot open shared object file`
-QAIRT/QNN python konvertörleri **Python 3.10** ve **libc++** ister. Çözüm:
+QNN python konvertörleri **Python 3.10** ve **libc++** ister; Colab ise 3.12
+kullanır. `06_official_pipeline.sh` ikisini de kendisi halleder: sistem
+python3.10 üzerinde bir `uv` venv'i kurar ve `libc++1`/`libc++abi1` eksikse
+apt'tan çeker. Elle bir şey kurmanız gerekmez.
+
+Yine de bu hatayı görüyorsanız venv bozuk kurulmuş demektir; silin, hat
+yeniden kurar:
+
 ```bash
-export QNN_SDK_ROOT=...     # setup_qnn_sdk.py çıktısı
-bash scripts/setup_qnn_python.sh          # 3.10 venv + libc++ kurar
-export QNN_PYTHON="$(cat /content/qnn_py.path)"   # veya venv/bin/python yolu
+rm -rf work/<model>/_official/npuconvertv2/.venv
 ```
-`03_convert_unet_qnn.sh` `QNN_PYTHON` env'ini (veya `/content/qnn_py.path`
-dosyasını) otomatik kullanır. Colab notebook'ta 4. adım bunu otomatik yapar.
 
 ## `Permission denied` (qairt-converter vb.)
 ZIP'ten açılan araçlar çalıştırma bitini kaybetmiş. `setup_qnn_sdk.py` bunu
@@ -50,8 +53,9 @@ uygulamanın sürümüyle birebir uyuşmuyor. Çözüm:
    (ör. Hugging Face `Mr-J-369/*-SD1.5-qnn2.28` veya uygulama içi Absolute Reality).
 2. İçini açın; dosya adlarını (`unet_*.bin`, `text_encoder.mnn`, `vae.mnn`,
    `model_info.json`) ve klasör düzenini not edin.
-3. `scripts/05_package.py` çıktısını bu düzene **birebir** eşitleyin (gerekirse
-   dosya adlarını / `model_info.json` alanlarını script içinde düzenleyin).
+3. Hattın ürettiği ZIP ile karşılaştırın. Paketleme
+   `scripts/06_official_pipeline.sh` sonundaki "Paket" bölümünde yapılır;
+   düzen orada tek yerde tanımlıdır.
 
 ## Görüntü bozuk / gürültülü çıkıyor (NPU'da)
 Kuantizasyon kalitesi düşük olabilir:
