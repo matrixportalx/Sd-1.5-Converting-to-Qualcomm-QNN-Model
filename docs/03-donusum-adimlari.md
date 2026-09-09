@@ -38,6 +38,36 @@ kurmanız gerekmez.
 | 4 | resmi `convert_all.sh` (npuconvertv2) — CLIP → MNN, VAE + UNet → QNN context binary | **RAM kısıtı burada**: ~20 GB+ |
 | 5 | Paketleme — `dist/<isim>_qnn2.28_<soc>.zip` | saniyeler |
 
+## Kuantizasyon: UNet de VAE de aynı bayraklarla
+
+CLIP dışındaki her şey kuantize edilir; VAE **fp16 değildir**. Resmi
+`convert_unet.sh`, `convert_vae_decoder.sh` ve `convert_vae_encoder.sh` üçü de
+aynı çağrıyı kullanır:
+
+```bash
+qnn-onnx-converter -n --input_network ./<model>/model.onnx \
+    --input_list ./input_list_<model>.txt \
+    --use_per_channel_quantization --bias_bitwidth 32 --act_bitwidth 16
+```
+
+Yani aktivasyonlar 16-bit, ağırlıklar kanal başına 8-bit (a16w8). Gelişmiş
+kuantizasyon (percentile / SQNR) bayrağı yoktur — kalibrasyon düz **min/max**
+üzerindendir, dolayısıyla örnek sayısı arttıkça gözlenen aralık yalnızca
+genişler.
+
+Kalibrasyon kümesi bileşene göre çok farklı büyüklükte:
+
+| Bileşen | Kalibrasyon girdisi | Nereden |
+|---|---|---|
+| UNet | ~926 geçerli tensörden **rastgele 400** | 20 görselin her difüzyon adımı × CFG'nin iki kolu (`\|sample\|max > 7.2` olanlar elenir) |
+| VAE decoder | **20 latent** | görsel başına bir tane |
+| VAE encoder | **20 görsel** | `images/` çıktısı |
+
+`CALIB_LIMIT` yalnızca bu listeleri kırpar; VAE listeleri zaten 20 satır
+olduğu için ondan etkilenmez. Üretimde `CALIB_LIMIT=0` (kırpma yok) kullanın —
+`24` boru hattını doğrulamak içindir ve UNet'i 400 yerine 24 tensörle kalibre
+eder.
+
 Ek çözünürlük istendiyse 1–4 arası her çözünürlük için **yeniden** koşulur ve
 çıkan `unet.bin`, taban 512×512 binary'sine karşı `zstd --patch-from` ile
 farklanıp pakete `*.patch` olarak konur. Ayrıntı:
