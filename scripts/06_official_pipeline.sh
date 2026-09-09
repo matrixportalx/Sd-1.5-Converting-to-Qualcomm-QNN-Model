@@ -223,13 +223,38 @@ fi
 # bir adim olarak kuruluyor; boylece kurulum tutmadiginda bir sonraki kosu
 # venv'i BASTAN kurmadan yalnizca torch'u tekrar deniyor.
 ENV_STAMP="$SRC/.venv/.setup_version"
-ENV_WANT="v3"
+ENV_WANT="v4"
 VENV_PY="$SRC/.venv/bin/python"
 if [ ! -x "$VENV_PY" ] || [ "$(cat "$ENV_STAMP" 2>/dev/null)" != "$ENV_WANT" ]; then
   echo "### resmi Python ortami kuruluyor ($ENV_WANT)"
   command -v uv >/dev/null 2>&1 || pip install -q uv
   command -v uv >/dev/null 2>&1 || { echo "HATA: uv kurulamadi"; exit 1; }
-  uv venv -p 3.10 --clear
+  # YORUMLAYICI SISTEMDEN GELMELI. `uv venv -p 3.10` sistemde 3.10 bulamazsa
+  # kendi python-build-standalone yapisini indirir; o yapi paylasimli
+  # libpython3.10.so.1.0 sunmaz. QNN'in libPyIrGraph.so'su ise sistem
+  # python3.10'una karsi derlenmis, DT_NEEDED listesinde libpython3.10.so.1.0
+  # var ve import sirasinda onu arar. Sonuc, 4. adimda:
+  #     ImportError: cannot import name 'libPyIrGraph' ...
+  #     ImportError: libpython3.10.so.1.0: cannot open shared object file
+  # (Dosya uv'nin dizininde bulunsa bile is gormez: dlopen edilen .so, DT_NEEDED
+  # cozerken yorumlayicinin RUNPATH'ini miras almaz.) Ubuntu 22.04'te python3.10
+  # dagitim varsayilanidir ve libpython3.10'a dinamik baglidir.
+  if [ ! -x /usr/bin/python3.10 ] \
+     || ! ldconfig -p 2>/dev/null | grep -q 'libpython3\.10\.so\.1\.0'; then
+    echo "  [python] sistem python3.10 + libpython3.10 kuruluyor"
+    DEBIAN_FRONTEND=noninteractive apt-get -qq update -y >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
+        python3.10 python3.10-venv libpython3.10 >/dev/null 2>&1 || true
+    ldconfig 2>/dev/null || true
+  fi
+  if [ -x /usr/bin/python3.10 ]; then
+    uv venv -p /usr/bin/python3.10 --python-preference only-system --clear
+  else
+    echo "  [!] sistem python3.10 kurulamadi — uv kendi 3.10'unu kullanacak."
+    echo "      qnn-onnx-converter libpython3.10.so.1.0 bulamayabilir;"
+    echo "      asagidaki on kontrol bunu prepare_data'dan ONCE soyleyecek."
+    uv venv -p 3.10 --clear
+  fi
   uv sync                       # KILITLI surumler — QNN 2.28 ile uyumlu
   echo "$ENV_WANT" > "$ENV_STAMP"
 fi
@@ -241,6 +266,14 @@ fi
 export PATH="$SRC/.venv/bin:$PATH"
 export VIRTUAL_ENV="$SRC/.venv"
 echo "  [python] $("$VENV_PY" -V)  ($VENV_PY)"
+
+# Yorumlayici paylasimli libpython'u nerede tutuyorsa yukleyici yoluna ekle.
+# Sistem python'unda gereksiz (ldconfig zaten biliyor); uv'nin kendi python'una
+# dusuldugu durumda ise tek sanstir.
+PY_LIBDIR="$("$VENV_PY" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")' 2>/dev/null || true)"
+if [ -n "$PY_LIBDIR" ] && [ -e "$PY_LIBDIR/libpython3.10.so.1.0" ]; then
+  export LD_LIBRARY_PATH="$PY_LIBDIR:${LD_LIBRARY_PATH:-}"
+fi
 
 # ---- CUDA torch -----------------------------------------------------------
 # Resmi pyproject torch'un CPU surumunu SABITLIYOR (torch==2.5.1+cpu, index
@@ -371,6 +404,38 @@ for f in scripts/convert_all.sh scripts/convert_all_unet_only.sh; do
          -e 's|^cd \${current_pwd}$|cd "${current_pwd}"|' "$f"
 done
 echo "  [sdk] convert_all.sh -> QNN_SDK_ROOT=$ABS_SDK"
+
+# ---- On kontrol: qnn-onnx-converter gercekten kosuyor mu? -----------------
+# 4. adim, cozunurluk basina ~40 dk suren prepare_data + ONNX disa aktarmanin
+# ARDINDAN geliyor. Ortam bozuksa bunu orada ogrenmek bir oturumu yakiyor;
+# burada bos bir --help ile saniyeler icinde ogreniliyor.
+QNN_BIN="$ABS_SDK/bin/x86_64-linux-clang"
+if [ -x "$QNN_BIN/qnn-onnx-converter" ]; then
+  QNN_ERR="$WORK/.qnn_onnx_converter.err"
+  if PYTHONPATH="$ABS_SDK/lib/python:${PYTHONPATH:-}" \
+     LD_LIBRARY_PATH="$ABS_SDK/lib/x86_64-linux-clang:${LD_LIBRARY_PATH:-}" \
+     "$QNN_BIN/qnn-onnx-converter" --help >/dev/null 2>"$QNN_ERR"; then
+    echo "  [on kontrol] qnn-onnx-converter calisiyor"
+  elif grep -qE 'ImportError|ModuleNotFoundError|Traceback' "$QNN_ERR" 2>/dev/null; then
+    # Yalnizca ortam bozuklugunda dur. --help'in kendi cikis kodu SDK surumune
+    # gore degisebiliyor; hatti bos yere oldurmemek icin olcut cikis kodu degil,
+    # stderr'de bir import hatasi olmasi.
+    echo "HATA: qnn-onnx-converter calismiyor — 4. adim kesinlikle duser."
+    tail -5 "$QNN_ERR" | sed 's/^/      /'
+    if grep -q 'libpython3\.10\.so' "$QNN_ERR" 2>/dev/null; then
+      echo "      Neden: yorumlayici paylasimli libpython3.10.so.1.0 sunmuyor"
+      echo "             (uv'nin indirdigi python-build-standalone yapisi boyle)."
+      echo "      Cozum: apt-get install -y python3.10 libpython3.10"
+      echo "             rm -rf \"$SRC/.venv\"   (sonra bu scripti yeniden calistirin)"
+    fi
+    exit 1
+  else
+    echo "  [!] qnn-onnx-converter --help sifir disi dondu ama import hatasi yok;"
+    echo "      devam ediliyor. (ayrinti: $QNN_ERR)"
+  fi
+else
+  echo "  [!] $QNN_BIN/qnn-onnx-converter yok — on kontrol atlandi"
+fi
 
 # ---- Onbellek yardimcilari ------------------------------------------------
 # prepare_data.py ~35 dk suruyor ve mobilde sekme arka plana atilinca calisma
