@@ -61,11 +61,24 @@ Hat, uzun koşuyu kurtaracak şekilde yazılmıştır:
 |---|---|
 | Yaması pakette var | o çözünürlük **atlanır** |
 | Taban `unet.bin` var | taban turu **atlanır** |
-| `CACHE_REPO` dolu | `<slug>/res_<WxH>/` — çözünürlük başına kalibrasyon verisi |
-| `CACHE_REPO` + `CACHE_OUTPUT=1` | `<slug>/out_<soc>/` — taban binary + birikmiş yamalar |
+| `CACHE_REPO` dolu | `<slug>/res_<WxH>_cs<N>[_real]/` — çözünürlük başına kalibrasyon verisi |
+| `CACHE_REPO` + `CACHE_OUTPUT=1` | `<slug>/out_<soc>_cs<N>[_real]_calib<N>/` — taban binary + birikmiş yamalar |
 
 Yani kopan bir Colab oturumundan sonra aynı hücreyi tekrar çalıştırmak
 yeterlidir; yalnızca eksik boyutlar koşar.
+
+**Anahtar ayarları da içerir** (`cs<CLIP_SKIP>`, `_real` = `REALISTIC=1`,
+çıktıda ayrıca `calib<CALIB_LIMIT>`). Sebebi: ayarı değiştirip aynı modeli
+yeniden dönüştürdüğünüzde önbellek eski veriyi geri yükleyip adımı atlarsa
+sonuç sessizce tutarsız olur — kalibrasyon verisi clip skip 2 ile üretilmişken
+ONNX clip skip 1 ile dışa aktarılır, ya da `CALIB_LIMIT=0` istenen koşuda 24
+ile üretilmiş `unet.bin` geri gelir. Ayar değiştirdiğinizde artık o adım
+yeniden koşar; bu bir gecikme değil, doğru davranıştır.
+
+2026-09-09'dan eski önbellek klasörlerinde ayar bilgisi yok. Hat bunlara
+yalnızca `CLIP_SKIP=2` + `REALISTIC=1` kombinasyonunda geri düşer (o koşuların
+ayarı buydu) ve düştüğünde log'a not basar. Çıktı tarafında ayrıca uyarır:
+o paketin `CALIB_LIMIT`'i bilinemez.
 
 Ara dosyalar her turun sonunda silinir (`unet/`, `qnn_unet/`, `output/`) —
 tur başına ~7 GB, Colab diski buna dayanmaz.
