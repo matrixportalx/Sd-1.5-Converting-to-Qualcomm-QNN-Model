@@ -141,6 +141,7 @@ echo "=========================================================="
 echo " RESMI HAT: $NAME  (soc=$SOC, clip_skip=$CLIP_SKIP)"
 echo " SDK: $QNN_SDK_ROOT"
 echo " Cozunurluk: $BASE_RES (taban)${EXTRA_RES:+ + yama: $EXTRA_RES}"
+echo " Kalibrasyon: CALIB_LIMIT=$CALIB_LIMIT (0 = kirpma yok, resmi 400)"
 echo "=========================================================="
 
 if [ -n "$EXTRA_RES" ]; then
@@ -448,6 +449,24 @@ fi
 # yedek olarak denenir, boylece eski onbellekler bosa gitmez.
 CACHE_REPO="${CACHE_REPO:-}"
 CACHE_OUTPUT="${CACHE_OUTPUT:-1}"
+
+# ANAHTAR AYARLARI DA ICERIR. Icermezse su sessiz hata olur: ayni modeli
+# CLIP_SKIP=1 ile yeniden donusturursun, hat onceki (clip skip 2) kosudan kalan
+# data.pkl'i indirip prepare_data'yi ATLAR; kalibrasyon verisi clip skip 2 ile
+# uretilmis, ONNX clip skip 1 ile disa aktarilmis olur. Uyusmazlik hicbir uyari
+# vermeden pakete girer. REALISTIC ayni sekilde kalibrasyon promptlarini
+# degistirir. CALIB_LIMIT ise veriyi degil CIKTIYI belirler (kirpma .full
+# kopyadan yapiliyor), o yuzden yalnizca cikti anahtarinda yer alir — yoksa
+# 24 ile uretilmis unet.bin, 400 istenen kosuda geri yuklenirdi.
+REAL_SUF=""; [ "$REALISTIC" = "1" ] && REAL_SUF="_real"
+VAR_DATA="cs${CLIP_SKIP}${REAL_SUF}"
+VAR_OUT="${VAR_DATA}_calib${CALIB_LIMIT}"
+OUT_KEY="$SLUG/out_${SOC}_${VAR_OUT}"
+# 2026-09-09 oncesi anahtarlarda ayar yoktu. O kosular clip_skip=2 + --realistic
+# ile yapilmisti; yalnizca o kombinasyonda eski anahtara geri dusuyoruz, boylece
+# birikmis onbellek bosa gitmiyor ama yanlis ayarla eslesme de olmuyor.
+LEGACY_OK=0
+if [ "$CLIP_SKIP" = "2" ] && [ "$REALISTIC" = "1" ]; then LEGACY_OK=1; fi
 CACHE_FILES="data.pkl images input_list_unet.full.txt \
 input_list_vae_decoder.full.txt input_list_vae_encoder.full.txt"
 CACHE_ON=0
@@ -497,13 +516,17 @@ reset_stage() {
 
 # prepare_data + gen_quant_data + kalibrasyon listesi kirpma.
 stage_data() {  # <W> <H>
-  local w="$1" h="$2" res="$1x$2" key="$SLUG/res_$1x$2"
+  local w="$1" h="$2" res="$1x$2" key="$SLUG/res_$1x$2_$VAR_DATA"
 
-  echo "### [$res] 0) onbellek kontrolu"
+  echo "### [$res] 0) onbellek kontrolu ($key)"
   cache_pull "$key" $CACHE_FILES
-  if [ "$res" = "$BASE_RES" ] && [ ! -f "data.pkl" ]; then
-    # cok cozunurluk oncesi duz anahtar
-    cache_pull "$SLUG" $CACHE_FILES
+  if [ ! -f "data.pkl" ] && [ "$LEGACY_OK" = "1" ]; then
+    # 2026-09-09 oncesi anahtarlar (ayarsiz). Yalnizca cs2+realistic'te denenir.
+    cache_pull "$SLUG/res_$1x$2" $CACHE_FILES
+    if [ "$res" = "$BASE_RES" ] && [ ! -f "data.pkl" ]; then
+      cache_pull "$SLUG" $CACHE_FILES   # cok cozunurluk oncesi duz anahtar
+    fi
+    [ -f "data.pkl" ] && echo "  [onbellek] eski (ayarsiz) anahtardan alindi — cs2 + realistic varsayildi"
   fi
 
   if [ ! -f "data.pkl" ]; then
@@ -577,7 +600,15 @@ if [ ! -d "$OUT_BASE" ] && [ -f "output/qnn_models_$SOC/unet.bin" ]; then
 fi
 # Birikmis ciktiyi (taban binary + o ana kadarki yamalar) onbellekten al.
 if [ "$CACHE_ON" = "1" ] && [ "$CACHE_OUTPUT" = "1" ] && [ ! -d "$OUT_BASE" ]; then
-  cache_pull "$SLUG/out_$SOC" "$OUT_BASE"
+  cache_pull "$OUT_KEY" "$OUT_BASE"
+  if [ ! -d "$OUT_BASE" ] && [ "$LEGACY_OK" = "1" ]; then
+    cache_pull "$SLUG/out_$SOC" "$OUT_BASE"
+    if [ -d "$OUT_BASE" ]; then
+      echo "  [!] cikti eski (ayarsiz) anahtardan alindi. O paketin CALIB_LIMIT'i"
+      echo "      BILINMIYOR; su anki $CALIB_LIMIT degeriyle uretilmemis olabilir."
+      echo "      Temiz kosu icin: CACHE_OUTPUT=0 ya da HF'de o klasoru silin."
+    fi
+  fi
 fi
 
 if [ -f "$OUT_DIR/unet.bin" ]; then
@@ -601,7 +632,7 @@ else
   [ -f "$OUT_DIR/unet.bin" ] || { echo "HATA: taban unet.bin uretilemedi"; exit 1; }
   if [ "$CACHE_ON" = "1" ] && [ "$CACHE_OUTPUT" = "1" ]; then
     echo "### [$BASE_RES] 4b) cikti onbellege yaziliyor"
-    cache_push "$SLUG/out_$SOC" "$OUT_BASE"
+    cache_push "$OUT_KEY" "$OUT_BASE"
   fi
 fi
 
@@ -645,7 +676,7 @@ for res in $EXTRA_RES; do
 
   if [ "$CACHE_ON" = "1" ] && [ "$CACHE_OUTPUT" = "1" ]; then
     echo "### [$res] 6) cikti onbellege yaziliyor"
-    cache_push "$SLUG/out_$SOC" "$OUT_BASE"
+    cache_push "$OUT_KEY" "$OUT_BASE"
   fi
 done
 
