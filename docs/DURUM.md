@@ -1,9 +1,19 @@
-# Durum ve Devam Notları (beklemede)
+# ARŞİV — terk edilen ilk hattın çalışma notları
 
-Bu belge, dönüşüm çalışmasının nerede kaldığını ve ileride nasıl devam
-edileceğini özetler. Çok fazla teknik detay burada — sıfırdan başlamamak için.
+> **Bu belge güncel durumu anlatmaz.** Aşağıdakiler, deponun ilk hattı
+> (`convert_all.sh`, `qairt-converter` → DLC → context binary) üzerinde
+> çalışırken tutulmuş notlardır. O hat **terk edildi** ve scriptleri depodan
+> **silindi**; ürettiği paketler cihazda yüklenmiyordu.
+>
+> Geçerli hat `scripts/06_official_pipeline.sh`'tir ve **çalışan paketler
+> üretir**; aşağıdaki "kalan tek engel" cümlesi o eski hatta aittir, bugün
+> geçerli değildir. Nedeni: [README → Neden resmi hat?](../README.md#neden-resmi-hat)
+>
+> Belge, cihaz tarafındaki bulgular (hedef ZIP düzeni, HTP mimari kısıtları,
+> hangi kombinasyonun neden çalışmadığı) hâlâ değerli olduğu için duruyor.
+> Buradaki komut ve dosya adlarının çoğu artık depoda yok.
 
-## Nereye geldik
+## Nereye geldik (o zaman)
 
 Toolkit, `safetensors` → **eksiksiz ve doğru formatlı** bir Local Dream (Ruya)
 SD1.5-NPU modeli üretiyor. Üretilen model telefonda **gerçek Hexagon NPU'ya

@@ -4,7 +4,7 @@
 
 civitai.red / Hugging Face üzerindeki **Stable Diffusion 1.5** tabanlı
 `.safetensors` modellerini, **Ruya / Local Dream** uygulamasının Snapdragon
-NPU'sunda çalıştırdığı **`<isim>_qnn2.39_min.zip`** paketine dönüştürür.
+NPU'sunda çalıştırdığı **`<isim>_qnn2.28_min.zip`** paketine dönüştürür.
 
 Hedef: Snapdragon 8 için yapılmış dönüşümleri kullanamayan **Snapdragon 7**
 (ve diğer "flagship olmayan") cihazlarda güncel modelleri çalıştırabilmek.
@@ -40,16 +40,17 @@ Ayrıntı için [`04-soc-htp-tablosu.md`](04-soc-htp-tablosu.md).
 
 ```
 .safetensors
-   │  (adım 0) diffusers'a aç
+   │  prepare_data.py — 20 prompt x difuzyon (kalibrasyon girdileri)
    ▼
-diffusers pipeline  ── text_encoder ─┐
-   │                                 │ (adım 1) ONNX + (adım 4) MNN
-   │                 ── vae ──────────┤──────────────► text_encoder.mnn, vae.mnn
-   │                                 │
-   └── unet ──(adım 1) ONNX ──(adım 2) kalibrasyon ──(adım 3) QNN ──► unet_*.bin
-                                                                         │
-                                          (adım 5) hepsini paketle ◄─────┘
-                                                       │
-                                                       ▼
-                                      <isim>_qnn2.39_min.zip
+data.pkl + input_list_*.txt
+   │  export_onnx.py — redefined_modules ile ONNX (sabit sekil)
+   ▼
+onnx/  ── text_encoder ──► clip_v2.mnn        (MNN, CPU/GPU)
+   │     ── vae ─────────► vae_*.bin          (QNN, fp16)
+   └───── unet ──────────► unet.bin           (QNN, act_bitwidth 16)
+                                   │
+              ek cozunurluk varsa: zstd --patch-from ──► *.patch
+                                   │
+                                   ▼
+                    <isim>_qnn2.28_<soc>.zip
 ```

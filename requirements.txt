@@ -1,19 +1,9 @@
-# SD1.5 -> QNN dönüşüm toolkit'i Python bağımlılıkları
-# (ONNX export ve kalibrasyon adımları için. QNN SDK ve MNNConvert ayrı kurulur.)
+# Sistem python'unun ihtiyaci — YALNIZCA yardimci scriptler icin.
 #
-# CPU yeterlidir; export sırasında GPU zorunlu değildir.
-# Sürümler diffusers'ın from_single_file API'siyle uyumlu olacak şekilde geniş
-# tutulmuştur; sorun olursa pinlemek için aşağıdaki denenmiş sürümleri kullanın.
+# Donusumun kendisi bunlari KULLANMAZ: scripts/06_official_pipeline.sh resmi
+# npuconvertv2 tarifinin kilitli surumlerini (torch, diffusers, onnx ...) kendi
+# uv venv'ine kurar. Colab defteri bu dosyayi hic okumaz; `pip install uv`
+# yeterlidir.
 
-torch>=2.1
-diffusers>=0.27
-transformers>=4.38
-accelerate>=0.27
-safetensors>=0.4
-onnx>=1.15
-onnxscript>=0.1            # yeni torch.onnx.export bunu içe aktarıyor
-onnxslim>=0.1             # ONNX sadeleştirme (MNN'in desteklemediği IsNaN vb. eler)
-numpy>=1.24
-omegaconf>=2.3          # from_single_file (SD config) için gerekli olabilir
-requests>=2.31          # model indirme (scripts/fetch_model.py)
-huggingface_hub>=0.23   # HF'ye yükleme (scripts/upload_hf.py)
+requests>=2.31          # model indirme (scripts/fetch_ckpt.py, fetch_official_scripts.py)
+huggingface_hub>=0.23   # HF yukleme ve onbellek (scripts/upload_hf.py, stage_cache.py)

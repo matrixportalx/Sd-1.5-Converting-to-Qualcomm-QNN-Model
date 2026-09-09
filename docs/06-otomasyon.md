@@ -19,10 +19,10 @@ Colab bağlantısı:
 4. Hücreleri sırayla çalıştır.
 
 ### SDK otomatik — manuel adım yok
-QAIRT SDK **`matrixportalx/qairt-sdk` v2.39.0.250926** release'inden otomatik
-indirilir (`scripts/setup_qnn_sdk.py`). Release **public** olduğu için token bile
-gerekmez; Qualcomm'dan indirme veya Drive'a yükleme **yok**. (Release'i private
-yaparsan Colab Secrets'a `GH_TOKEN` ekle.)
+QNN SDK **2.28** `scripts/setup_qnn_sdk.py` ile otomatik indirilir; Qualcomm'dan
+elle indirme veya Drive'a yükleme **yok**. Sürüm şarttır (bkz.
+[`02-gereksinimler.md`](02-gereksinimler.md)); indirme linki `config.env`
+içindeki `OVERRIDE_QAIRT_ASSET_URL` satırından gelir.
 
 ### Kısıtlar
 - **RAM:** 512px için ~20 GB gerekir. Ücretsiz Colab (12 GB) OOM olabilir; notebook
@@ -34,35 +34,19 @@ yaparsan Colab Secrets'a `GH_TOKEN` ekle.)
 
 ---
 
-## B) GitHub Actions — yalnızca **self-hosted runner** ⚠️
+## GitHub Actions neden yok?
 
-**Dosya:** [`.github/workflows/convert.yml`](../.github/workflows/convert.yml)
+Bir zamanlar `.github/workflows/convert.yml` vardı; **silindi.** Kuantizasyon
+512px için bile ~20 GB RAM istiyor, GitHub'ın ücretsiz runner'ı ~7 GB veriyor —
+yani workflow yalnızca self-hosted bir runner'la anlam taşıyordu. Depoya hiç
+runner kaydedilmedi, iki deneme koşusu da runner beklerken iptal edildi.
+Üstelik workflow terk edilmiş elle boru hattını çağırıyordu; kalsaydı çalışmayan
+bir yolu doğruymuş gibi gösterirdi.
 
-> **Ücretsiz (github-hosted) runner'lar ÇALIŞMAZ.** Tek sebep artık **RAM**:
-> ~7 GB var, 20 GB+ gerekli. (SDK otomatik indirildiği için lisans sorunu yok.)
+Elinizde 32 GB+ RAM'li bir Linux makine varsa Actions'a gerek yok, scripti
+doğrudan koşabilirsiniz:
 
-SDK'yı workflow zaten release'ten otomatik indirir; sadece yeterli RAM'li bir
-runner gerekir:
-
-1. **Depo → Settings → Actions → Runners → New self-hosted runner** (kendi 32 GB+
-   Linux makineniz). *Alternatif:* GitHub "larger runner" (ücretli) — `runs-on`'u
-   değiştirin.
-2. **Depo Secrets:** `HF_TOKEN` (write), gerekiyorsa `CIVITAI_TOKEN`.
-   (qairt-sdk release public ise `GH_TOKEN` gerekmez.)
-3. **Actions → "Convert SD1.5 -> QNN" → Run workflow** → linki, model adını,
-   `qnn_version` (varsayılan 2.39) girin.
-
-Çıktı hem **artifact** olarak indirilebilir hem de `hf_repo` doldurulduysa HF'ye yüklenir.
-
----
-
-## Hangisini seçmeliyim?
-
-| Durum | Öneri |
-|---|---|
-| Kendi güçlü PC'niz yok | **Colab (Pro / High-RAM)** |
-| Elinizde 32 GB+ RAM'li Linux makine var | **Self-hosted Actions** (tekrarlı işler için pratik) |
-| Sadece tek seferlik deneme | Colab |
-
-Her iki yol da aynı `convert_all.sh` hattını ve aynı `fetch_model.py` / `upload_hf.py`
-yardımcılarını kullanır; sonuç birebir aynıdır.
+```bash
+export QNN_SDK_ROOT=...        # 2.28
+scripts/06_official_pipeline.sh model.safetensors CyberRealistic work/ min
+```
