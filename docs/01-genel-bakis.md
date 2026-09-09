@@ -46,8 +46,8 @@ data.pkl + input_list_*.txt
    │  export_onnx.py — redefined_modules ile ONNX (sabit sekil)
    ▼
 onnx/  ── text_encoder ──► clip_v2.mnn        (MNN, CPU/GPU)
-   │     ── vae ─────────► vae_*.bin          (QNN, fp16)
-   └───── unet ──────────► unet.bin           (QNN, act_bitwidth 16)
+   │     ── vae ─────────► vae_*.bin          (QNN, a16w8)
+   └───── unet ──────────► unet.bin           (QNN, a16w8)
                                    │
               ek cozunurluk varsa: zstd --patch-from ──► *.patch
                                    │
