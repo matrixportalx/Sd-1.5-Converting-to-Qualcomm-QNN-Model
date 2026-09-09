@@ -112,6 +112,41 @@ Beklenen davranış. Yamasız bir boyutta motor latent'i 96×96 üretir ama graf
 64×64 bekler; çıktı sessizce renkli gürültü olurdu. Boyutu paketle birlikte
 üretin ya da 512×512'de kalın.
 
+## `libpython3.10.so.1.0: cannot open shared object file`
+Tam hali, 4. adımda (QNN dönüşümü) şöyle görünür:
+
+```
+ImportError: cannot import name 'libPyIrGraph' from partially initialized
+             module 'qti.aisw.converters.common' ...
+ImportError: libpython3.10.so.1.0: cannot open shared object file
+```
+
+İlk satır örtücüdür, ikinci satır gerçek nedendir. SDK'nın C++ eklentisi
+`libPyIrGraph.so` **sistem python3.10'una karşı** derlenmiştir; `DT_NEEDED`
+listesinde `libpython3.10.so.1.0` vardır ve import sırasında onu arar.
+`uv venv -p 3.10` sistemde 3.10 bulamazsa kendi python-build-standalone
+yapısını indirir; o yapı paylaşımlı bir libpython sunmaz ve eklenti çözülemez.
+(Dosya uv'nin dizininde bulunsa bile yetmez: dlopen edilen `.so`, DT_NEEDED
+çözerken yorumlayıcının RUNPATH'ini miras almaz.)
+
+Hat artık venv'i **sistem** python3.10'undan kurar
+(`uv venv -p /usr/bin/python3.10 --python-preference only-system`) ve gerekirse
+`python3.10 libpython3.10` paketlerini kendisi kurar. Eski, bozuk bir venv
+elde kalmışsa bir kez temizleyin:
+
+```bash
+rm -rf work/<model>/_official/npuconvertv2/.venv
+```
+
+Sonraki koşuda ortam damgası (`v4`) zaten yeniden kurulmasını sağlar. Ayrıca
+hat, `prepare_data`'ya girmeden önce `qnn-onnx-converter --help` ile bir ön
+kontrol yapar; ortam bozuksa ~40 dakika sonra değil, ilk saniyelerde durur.
+
+**Uyarı:** yalnızca `apt-get install libpython3.10` deyip uv'nin python'uyla
+devam etmeyin. Statik libpython'lu bir yorumlayıcının içine ikinci bir
+libpython yüklemek tek süreçte çift çalışma zamanı demektir; segfault olarak
+geri döner.
+
 ## Yardımcı olabilecek kesin kaynak
 Resmi dönüştürme kılavuzu (Çince, tarayıcı çevirisiyle okunur):
 <https://ld-guide.chino.icu/zh/conversion/sd15>
