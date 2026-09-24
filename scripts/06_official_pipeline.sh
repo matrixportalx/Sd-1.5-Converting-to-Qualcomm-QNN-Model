@@ -177,6 +177,7 @@ if [ ! -s "$CKPT" ]; then
 fi
 ABS_CKPT="$(cd "$(dirname "$CKPT")" && pwd)/$(basename "$CKPT")"
 ABS_SDK="$(cd "$QNN_SDK_ROOT" && pwd)"
+
 cd "$SRC"
 
 # ZIP calistirma bitlerini korumuyor -> paketle gelen MNNConvert ikilisi ve
@@ -266,6 +267,43 @@ if [ ! -x "$VENV_PY" ]; then
 fi
 export PATH="$SRC/.venv/bin:$PATH"
 export VIRTUAL_ENV="$SRC/.venv"
+
+# ---- LoRA kaynastirma (istege bagli) --------------------------------------
+# NPU'da CALISMA ZAMANI LoRA MUMKUN DEGIL: QNN grafigi derlenmis ve agirliklari
+# icine gomulmus, disaridan delta eklenecek yer yok. Tek yol LoRA'yi ONNX'e
+# cikmadan ONCE temel agirliklara islemek. Ag yapisi degismiyor, yalnizca
+# sayilar kayiyor — yeni op yok, niceleme riski yok.
+#
+# Kaynastirma CHECKPOINT duzeyinde yapiliyor cunku hat iki yerde model okuyor
+# (prepare_data -> kalibrasyon, export_onnx -> ONNX) ve IKISI DE ayni
+# agirliklari gormek zorunda. Yalniz export tarafina islenirse kalibrasyon
+# temel modelden cikar, niceleme araliklari kaymis agirliklarla uyusmaz ve
+# sonuc sessizce bozulur.
+#
+# Kullanim (config.env ya da ortam degiskeni):
+#     LORA_FILES="/yol/style.safetensors:0.8 /yol/detail.safetensors:0.5"
+if [ -n "${LORA_FILES:-}" ]; then
+  # WORK goreli verilmis olabilir ve bu noktada zaten 'cd $SRC' yapilmis
+  # durumda; mutlaklastirilmadan kullanilirsa dosya bambaska bir yere yazilir.
+  mkdir -p "$WORK"
+  LORA_OUT="$(cd "$WORK" && pwd)/input_lora"
+  if [ -d "${LORA_OUT}_diffusers" ]; then
+    echo "  [lora] kaynastirilmis model zaten var -> ${LORA_OUT}_diffusers"
+  else
+    echo "  [lora] kaynastiriliyor: $LORA_FILES"
+    # shellcheck disable=SC2086
+    "$VENV_PY" "$SDIR_SELF/fuse_lora.py" \
+        --ckpt "$ABS_CKPT" --out "$LORA_OUT" --lora $LORA_FILES \
+      || { echo "HATA: LoRA kaynastirma dustu"; exit 1; }
+  fi
+  # Hattin geri kalani bu yolu kullanir. DIKKAT: burasi bir diffusers DIZINI,
+  # tek dosya degil. export_onnx.py dizin kabul ediyor (bkz. model_path_arg);
+  # prepare_data.py'nin de kabul ettigi VARSAYILIYOR ama DOGRULANMADI — ilk
+  # kosuda bu adimda duserse prepare_data'ya ayri bir yol vermek gerekir.
+  ABS_CKPT="$(cd "${LORA_OUT}_diffusers" && pwd)"
+  echo "  [lora] model yolu -> $ABS_CKPT"
+fi
+
 echo "  [python] $("$VENV_PY" -V)  ($VENV_PY)"
 
 # Yorumlayici paylasimli libpython'u nerede tutuyorsa yukleyici yoluna ekle.
@@ -580,7 +618,12 @@ stage_data() {  # <W> <H>
 # diffusers dizini ('./model') dokuluyor (~4 GB, dakikalar); sonraki
 # cozunurluklerde ayni dokumu tekrar yapmanin anlami yok.
 model_path_arg() {
-  if [ -f "$SRC/model/model_index.json" ] && [ -f "$SRC/model/unet/config.json" ]; then
+  # LoRA kaynastirildiysa ABS_CKPT zaten bir diffusers dizini ve dogrudan
+  # kullanilmali; './model' dokumu TEMEL agirliklardan gelmis olabilir ve
+  # onu tercih etmek LoRA'yi sessizce yok sayardi.
+  if [ -n "${LORA_FILES:-}" ]; then
+    printf '%s' "$ABS_CKPT"
+  elif [ -f "$SRC/model/model_index.json" ] && [ -f "$SRC/model/unet/config.json" ]; then
     printf './model'
   else
     printf '%s' "$ABS_CKPT"
