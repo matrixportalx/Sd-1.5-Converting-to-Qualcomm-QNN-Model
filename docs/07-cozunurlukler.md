@@ -98,17 +98,47 @@ tur başına ~7 GB, Colab diski buna dayanmaz.
   |---|---|---|---|
   | 512×512 (taban) | 64×64 | 4096 | 0,44× |
   | 512×768 | 64×96 | 6144 | 0,67× |
-  | **512×1024** | **64×128** | **8192** | **0,89×** |
+  | 512×1024 | 64×128 | 8192 | 0,89× |
+  | 512×1152 | 64×144 | 9216 | 1,00× |
   | 768×768 | 96×96 | 9216 | 1× |
+  | 576×1280 | 72×160 | 11520 | 1,25× |
   | 768×1024 | 96×128 | 12288 | 1,33× |
+  | 640×1408 | 80×176 | 14080 | 1,53× |
   | 1024×1024 | 128×128 | 16384 | 1,78× |
 
   Yani `512x1024`, doğrulanmış `768x768`'den **daha hafiftir** — "1024 kenarı
   var" diye çekinmeye gerek yok. Alanı 768×768'i geçen boyutlarda (768×1024 ve
   üstü) kuantizasyon RAM'i ve cihazdaki VTCM baskısı oranında artar; onları
   önce 768×768 ile doğrulayın.
+
 * **VAE yamalanmaz.** Yalnızca UNet. Yüksek çözünürlükte VAE tarafını
   uygulama kendi hallediyor.
+
+## Telefon ekranını tam doldurmak
+
+Ekran oranı üretim oranıyla tutmazsa duvar kağıdında ya şerit kalır ya kenar
+kırpılır. Belirleyici olan **oran**, çözünürlük değil: 4× büyütme yalnızca
+pikseli çoğaltır, oranı değiştirmez.
+
+OnePlus 12R (FHD+ kipi) için ekran **1080×2376 = tam 5:11 = 0,4545**:
+
+| Üretim | Oran | Ekrana göre | Alan |
+|---|---|---|---|
+| 512×1024 | 0,5000 | %9,1 enden kırpılır | 0,89× |
+| 512×1152 | 0,4444 | %2,2 boydan | 1,00× |
+| 576×1280 | 0,4500 | %1,0 boydan | 1,25× |
+| **640×1408** | **0,4545** | **tam oturur** | 1,53× |
+
+`640x1408` kırpmasız olanıdır: 5:11'in 64'e bölünebilen en küçük iki katı
+(64·10 × 64·22). İlk katı olan `320x704` de tam 5:11'dir ama 320 piksel en,
+SD1.5'in 512 doğal ölçeğinin altında kalır — yüzler dağılır, önerilmez.
+
+Kamera fotoğrafının oranı (1856×4096 = 29:64 = 0,4531) ekranınkinden %0,3 farklı;
+pratikte ikisi için de aynı üretim boyutu kullanılır.
+
+4× büyütme sonrası çıktı (ör. 2560×5632) ekranın çok üstünde kalır; aradaki
+küçültme fazladan keskinlik kazandırır, kayıp değildir.
+
 
 ## Doğrulama
 

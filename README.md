@@ -125,6 +125,10 @@ yoktur. Yamalar paketin köküne, `unet.bin`'in yanına konur:
 
 Kenarlar **64'ün katı** olmalıdır (SD1.5 UNet latent'i 3 kez yarılar).
 
+Telefon ekranını şeritsiz doldurmak için üretim **oranı** ekranınkiyle tutmalı;
+büyütme oranı değiştirmez. 1080×2376 (5:11) ekran için kırpmasız boyut
+`640x1408`'dir — ayrıntı ve daha ucuz yaklaşıklar için `docs/07`.
+
 ### Bedeli
 
 Her ek çözünürlük **tam bir dönüştürme turudur**: o boyutta kalibrasyon verisi
