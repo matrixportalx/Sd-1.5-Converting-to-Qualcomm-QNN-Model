@@ -46,7 +46,10 @@ RESOLUTIONS="512x768,768x512,768x768" \
 
 * Ayırıcı: virgül, noktalı virgül veya boşluk. `512X768` de kabul edilir.
 * `512x512` yazılırsa sessizce çıkarılır — zaten üretiliyor.
-* Kenarlar **64'ün katı** olmalıdır (UNet latent'i 3 kez yarılar).
+* Kenarlar **64'ün katı** olmalıdır (UNet latent'i 3 kez yarılar). Bu yüzden
+  telefon ekranının tam oranı (ör. 1856×4096 = 29:64) tutturulamaz; 64 katı
+  kenarlarla o oran ancak 1856×4096'nın kendisinde çıkar. En yakın pratik
+  karşılık `512x1024` (4× büyütme sonrası 2048×4096, hedefe ortadan kırpılır).
 * Colab'da 1. adımdaki kutulardan seçilir.
 
 ## Bedeli ve devam edebilirlik
@@ -88,8 +91,22 @@ tur başına ~7 GB, Colab diski buna dayanmaz.
 * **`min` (v68):** resmi tarif ek çözünürlükleri yalnızca `8gen1`/`8gen2` için
   üretir — *"Non-flagship SOC versions can't run higher resolutions"*. `min`
   ile de yama üretilir, uyarı basılır, ama cihazda yüklenmeyebilir.
-* **1024 kenar:** kuantizasyon RAM'i 512'ye göre kabaca 4×'tir ve cihaz
-  tarafında VTCM'ye sığmayabilir. Önce 768 ile doğrulayın.
+* **Maliyet kenara değil alana bağlıdır.** Belirleyici olan latent alanıdır
+  (piksel/8 çarpımı), en uzun kenar değil:
+
+  | Boyut | Latent | Alan | 768×768'e göre |
+  |---|---|---|---|
+  | 512×512 (taban) | 64×64 | 4096 | 0,44× |
+  | 512×768 | 64×96 | 6144 | 0,67× |
+  | **512×1024** | **64×128** | **8192** | **0,89×** |
+  | 768×768 | 96×96 | 9216 | 1× |
+  | 768×1024 | 96×128 | 12288 | 1,33× |
+  | 1024×1024 | 128×128 | 16384 | 1,78× |
+
+  Yani `512x1024`, doğrulanmış `768x768`'den **daha hafiftir** — "1024 kenarı
+  var" diye çekinmeye gerek yok. Alanı 768×768'i geçen boyutlarda (768×1024 ve
+  üstü) kuantizasyon RAM'i ve cihazdaki VTCM baskısı oranında artar; onları
+  önce 768×768 ile doğrulayın.
 * **VAE yamalanmaz.** Yalnızca UNet. Yüksek çözünürlükte VAE tarafını
   uygulama kendi hallediyor.
 
