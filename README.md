@@ -108,7 +108,7 @@ seçilemez (Ruya bu durumda üretime hiç başlamaz — yamasız 768 istenirse �
 renkli gürültü olurdu).
 
 ```bash
-RESOLUTIONS="512x768,768x512,768x768,768x1024,1024x768,1024x1024" \
+RESOLUTIONS="512x768,768x512,512x1024,1024x512,768x768,768x1024,1024x768,1024x1024" \
   bash scripts/06_official_pipeline.sh <ckpt> <isim> <work> 8gen2
 ```
 
@@ -121,6 +121,7 @@ yoktur. Yamalar paketin köküne, `unet.bin`'in yanına konur:
 | 1024×1024 | `1024.patch` |
 | 512×768 | `512x768.patch` (dikdörtgen boyutlar `WxH`) |
 | 768×512 | `768x512.patch` |
+| 512×1024 | `512x1024.patch` |
 
 Kenarlar **64'ün katı** olmalıdır (SD1.5 UNet latent'i 3 kez yarılar).
 
@@ -133,7 +134,7 @@ Her ek çözünürlük **tam bir dönüştürme turudur**: o boyutta kalibrasyon
 | | süre | RAM |
 |---|---|---|
 | taban 512×512 | 1× | ~20 GB |
-| her ek boyut | +1× | 768 için ~2×, 1024 için ~4× |
+| her ek boyut | +1× | latent alanıyla oranlı (bkz. `docs/07`) |
 
 Bu yüzden hat **kaldığı yerden devam eder**: biten bir çözünürlüğün yaması
 pakette varsa o tur atlanır, `CACHE_REPO` doluysa hem kalibrasyon verisi hem
@@ -144,8 +145,9 @@ tekrar başlatıldığında yalnızca eksik boyutlar koşar.
 
 Resmi tarif ek çözünürlükleri yalnızca `8gen1`/`8gen2` için üretir
 (*"Non-flagship SOC versions can't run higher resolutions"*). `min` ile de
-yama üretilir ama v68 sınıfı cihazlarda yüklenmeyebilir. 1024 kenarlı
-boyutlar cihaz tarafında VTCM'ye sığmayabilir; önce 768 ile doğrulayın.
+yama üretilir ama v68 sınıfı cihazlarda yüklenmeyebilir. Alanı 768×768'i geçen
+boyutlar (768×1024 ve üstü) cihaz tarafında VTCM'ye sığmayabilir; önce 768×768
+ile doğrulayın. `512x1024` bu eşiğin altındadır.
 
 ---
 

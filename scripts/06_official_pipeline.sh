@@ -152,13 +152,18 @@ if [ -n "$EXTRA_RES" ]; then
     echo "      dusuk HTP (v68) kusaklari yuksek cozunurlugu kaldiramiyor."
     echo "      Yama uretilir ama cihazda yuklenmeyebilir; 8gen1/8gen2 onerilir."
   fi
-  case " $EXTRA_RES " in
-    *1024*)
-      echo "  [!] 1024 kenarli cozunurluk var. Kuantizasyon RAM'i 512'ye gore"
-      echo "      ~4x artar (20 GB alt sinir -> cok daha fazlasi) ve cihaz"
-      echo "      tarafinda VTCM'ye sigmayabilir. Once 768 ile dogrulayin."
-      ;;
-  esac
+  # Maliyet kenar uzunluguna degil latent ALANINA baglidir: 512x1024 (64x128)
+  # dogrulanmis 768x768'den (96x96) daha hafiftir, 1024x1024 ise ~2x agirdir.
+  _agir=""
+  for _item in $EXTRA_RES; do
+    _w="${_item%%x*}"; _h="${_item##*x}"
+    if [ $((_w * _h)) -gt $((768 * 768)) ]; then _agir="$_agir $_item"; fi
+  done
+  if [ -n "$_agir" ]; then
+    echo "  [!] 768x768'den buyuk boyut(lar):$_agir. Kuantizasyon RAM'i (20 GB"
+    echo "      alt sinir) ve cihazdaki VTCM baskisi alanla oranli artar."
+    echo "      Once 768x768 ile dogrulayin."
+  fi
 fi
 
 # 2.28 kontrolu — yanlis surumle kosmak saatleri bosa harcar
